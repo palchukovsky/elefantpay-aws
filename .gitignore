@@ -1,0 +1,5 @@
+/mock
+/.vscode/launch.json
+/coverage.txt
+/bin
+/.env

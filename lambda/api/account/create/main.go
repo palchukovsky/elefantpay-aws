@@ -4,7 +4,6 @@ import (
 	"log"
 
 	"github.com/badoux/checkmail"
-	"github.com/palchukovsky/elefantpay-aws/elefant"
 	"github.com/palchukovsky/elefantpay-aws/lambda"
 	"github.com/palchukovsky/elefantpay-aws/lambda/api"
 )
@@ -13,10 +12,10 @@ type request struct {
 	Account api.AccountRequest `json:"account"`
 }
 
-var db elefant.DB
+// var db elefant.DB
 
 func init() {
-	db = elefant.NewDB()
+	// db = elefant.NewDB()
 }
 
 func handle(httpRequest *lambda.HTTPRequest) (*lambda.HTTPResponse, error) {
