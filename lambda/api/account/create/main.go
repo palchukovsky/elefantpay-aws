@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net/http"
 
 	"github.com/badoux/checkmail"
 	"github.com/palchukovsky/elefantpay-aws/lambda"
@@ -36,7 +37,7 @@ func handle(httpRequest *lambda.HTTPRequest) (*lambda.HTTPResponse, error) {
 			"Password could not be shorter than 8 symbols"), nil
 	}
 
-	return &lambda.HTTPResponse{StatusCode: 200}, nil
+	return &lambda.HTTPResponse{StatusCode: http.StatusCreated}, nil
 }
 
 func main() { lambda.Start(handle) }

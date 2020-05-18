@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+
 	"github.com/palchukovsky/elefantpay-aws/lambda"
 	"github.com/palchukovsky/elefantpay-aws/lambda/api"
 )
@@ -21,7 +23,7 @@ func handle(httpRequest *lambda.HTTPRequest) (*lambda.HTTPResponse, error) {
 		return errResp, nil
 	}
 	return &lambda.HTTPResponse{
-			StatusCode: 200,
+			StatusCode: http.StatusCreated,
 			Body:       "example-temporary-token"},
 		nil
 }

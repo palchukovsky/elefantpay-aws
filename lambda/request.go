@@ -3,6 +3,7 @@ package lambda
 import (
 	"encoding/json"
 	"log"
+	"net/http"
 )
 
 // HTTPRequest describes HTTP-request to lambda.
@@ -25,9 +26,9 @@ func NewErrorResponseBadParam(message string) *HTTPResponse {
 	if err != nil {
 		log.Printf(`Failed serialize bad-request response "%s": "%s".`,
 			message, err)
-		return &HTTPResponse{StatusCode: 500}
+		return &HTTPResponse{StatusCode: http.StatusInternalServerError}
 	}
-	return &HTTPResponse{StatusCode: 400, Body: string(body)}
+	return &HTTPResponse{StatusCode: http.StatusBadRequest, Body: string(body)}
 }
 
 // ParseRequest tries to parse request, returns response with error at error.

@@ -15,10 +15,10 @@ GOLANGCI_VER = 1.27.0
 
 .PHONY: \
 	help lint mock \
-	deploy deploy-lambda-api \
+	install deploy-lambda-api \
 	build build-builder build-builder-golang build-lambda-api \
 	install-mock install-mock-deps
-.DEFAULT_GOAL := help
+.DEFAULT_GOAL := build
 
 WORKDIR = /go/src/${CODE_REPO}
 THIS_FILE := $(lastword ${MAKEFILE_LIST})
@@ -51,9 +51,8 @@ help: ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' ${MAKEFILE_LIST} | sort | awk 'BEGIN {FS = ":.*?## "};	{printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 
-deploy:  ## Deploy current sources. Uses .env file wich has to have vars AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+install:  ## Deploy current sources. Uses .env file wich has to have vars AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
 	@$(call echo_start)
-	$(call make_target,build)
 	docker run --env-file .env --rm ${IMAGE_TAG_BUILDER_BUILDER} /bin/sh -c \
 		"cd ${WORKDIR} && make deploy-lambda-api"
 	@$(call echo_success)
