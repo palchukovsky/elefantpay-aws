@@ -1,7 +1,7 @@
 package api
 
-// AccountRequest describes account request.
-type AccountRequest struct {
+// ClientRequest describes client request.
+type ClientRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }

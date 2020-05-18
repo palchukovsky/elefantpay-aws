@@ -17,7 +17,7 @@ GOLANGCI_VER = 1.27.0
 	help lint mock \
 	install deploy-lambda-api \
 	build build-builder build-builder-golang build-lambda-api \
-	install-mock install-mock-deps
+	install-deps install-mock install-mock-deps
 .DEFAULT_GOAL := build
 
 WORKDIR = /go/src/${CODE_REPO}
@@ -58,7 +58,7 @@ install:  ## Deploy current sources. Uses .env file wich has to have vars AWS_AC
 	@$(call echo_success)
 
 
-install: ## Install package and all dependencies.
+install-deps: ## Install package and all dependencies.
 	@$(call echo_start)
 	${GO_GET_CMD} ./...
 	$(call make_target,install-mock)
@@ -81,6 +81,7 @@ install-mock-deps: ## Install mock compilator components.
 
 build: ## Build docker builder image with actual project sources.
 	@$(call echo_start)
+	-docker image rm ${IMAGE_TAG_BUILDER_BUILDER}
 	docker build --file "./build/builder/builder.Dockerfile" \
 		--build-arg GOLANG=${IMAGE_TAG_BUILDER_GOLANG} \
 		--build-arg WORKDIR=${WORKDIR} \
@@ -98,6 +99,7 @@ build-builder: ## Build all docker images for builder.
 
 build-builder-golang: ## Build docker golang base node image.
 	@$(call echo_start)
+	-docker image rm ${IMAGE_TAG_BUILDER_GOLANG}
 	docker build --file "./build/builder/golang.Dockerfile" \
 		--build-arg GOLANG_TAG=${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG} \
 		--build-arg GOLANGCI_VER=${GOLANGCI_VER} \
@@ -121,28 +123,30 @@ mock: ## Generate mock interfaces for unit-tests.
 
 
 define build-lambda
-	GOOS=linux go build -o bin/$(1)/handler $(1)/main.go
-  zip --junk-paths bin/$(1).zip bin/$(1)/handler
+	GOOS=linux go build -o bin/lambda/$(1)/hello lambda/$(1)/main.go
+  zip --junk-paths bin/lambda/$(1).zip bin/lambda/$(1)/hello
 endef
 define configure-deploy
 endef
 define deploy-lambda
 	aws lambda update-function-code \
 		--function-name $(2) \
-		--zip-file fileb://bin/$(1).zip \
+		--zip-file fileb://bin/lambda/$(1).zip \
 		--region ${AWS_REGION} \
 		--output text
 endef
 
 build-lambda-api:
 	@$(call echo_start)
-	$(call build-lambda,lambda/api/account/create)
-	$(call build-lambda,lambda/api/account/login)
+	$(call build-lambda,test)
+	$(call build-lambda,api/client/create)
+	$(call build-lambda,api/client/login)
 	@$(call echo_success)
 
 deploy-lambda-api:
 	@$(call echo_start)
 	$(call configure-deploy)
-	$(call deploy-lambda,lambda/api/account/create,APIAccountCreate)
-	$(call deploy-lambda,lambda/api/account/login,APIAccountLogin)
+	$(call deploy-lambda,test,Test)
+	$(call deploy-lambda,api/client/create,APIClientCreate)
+	$(call deploy-lambda,api/client/login,APIClientLogin)
 	@$(call echo_success)
