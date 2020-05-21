@@ -3,8 +3,8 @@ package main
 import (
 	"log"
 
+	aws "github.com/aws/aws-lambda-go/lambda"
 	"github.com/palchukovsky/elefantpay-aws/elefant"
-	"github.com/palchukovsky/elefantpay-aws/lambda"
 )
 
 type request struct{}
@@ -13,11 +13,7 @@ type response struct{}
 var db elefant.DB
 
 func init() {
-	var err error
-	db, err = elefant.NewDB()
-	if err != nil {
-		log.Fatalf(`Failed to init DB: "%v".`, err)
-	}
+	db = elefant.NewDB()
 }
 
 func handle(*request) (*response, error) {
@@ -30,4 +26,4 @@ func handle(*request) (*response, error) {
 	return &response{}, nil
 }
 
-func main() { lambda.Start(handle) }
+func main() { aws.Start(handle) }

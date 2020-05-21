@@ -1,61 +1,59 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/badoux/checkmail"
 	"github.com/palchukovsky/elefantpay-aws/elefant"
-	"github.com/palchukovsky/elefantpay-aws/lambda"
 	"github.com/palchukovsky/elefantpay-aws/lambda/api"
 )
 
 var db elefant.DB
 
 func init() {
-	var err error
-	if db, err = elefant.NewDB(); err != nil {
-		log.Printf(`Failed to create DB object: "%v".`, err)
-		db = nil
-	}
+	db = elefant.NewDB()
 }
 
-func handle(httpRequest *api.HTTPRequest) (*api.HTTPResponse, error) {
+func handle(httpRequest *api.HTTPRequest) (interface{}, error) {
 
 	if db == nil {
-		return api.NewHTTPResponseInternalServerError(), nil
+		return api.NewHTTPResponseInternalServerError(errors.New("no db"))
 	}
 
 	request := &api.ClientRequest{}
-	if errResp := api.ParseRequest(httpRequest, request); errResp != nil {
-		return errResp, nil
+	errResp, err := api.ParseRequest(httpRequest, request)
+	if errResp != nil || err != nil {
+		return errResp, err
 	}
 
 	if err := checkmail.ValidateFormat(request.Email); err != nil {
-		log.Printf(`Failed to validate email: "%v".`, request.Email)
-		return api.NewHTTPResponseBadParam("Email has invalid format"), nil
+		return api.NewHTTPResponseBadParam("Email has invalid format",
+			fmt.Errorf(`failed to validate email: "%v"`, request.Email))
 	}
 	if len(request.Password) < 8 {
-		log.Printf(`Failed to validate password: too small (%d symbols).`,
-			len(request.Password))
 		return api.NewHTTPResponseBadParam(
-			"Password could not be shorter than 8 symbols"), nil
+			"Password could not be shorter than 8 symbols",
+			fmt.Errorf(`failed to validate password: too small (%d symbols)`,
+				len(request.Password)))
 	}
 
 	client, err := db.CreateClient(request.Email, request.Password)
 	if err != nil {
-		log.Printf(`Failed to store new client record for request "%v": "%s".`,
-			*httpRequest, err)
-		return api.NewHTTPResponseInternalServerError(), nil
+		return api.NewHTTPResponseInternalServerError(
+			fmt.Errorf(`failed to store new client record for request "%v": "%s"`,
+				*httpRequest, err))
 	}
 	if client == nil {
-		log.Printf(`Failed to create new client as email "%s" already used.`,
-			request.Email)
-		return api.NewHTTPResponseEmpty(http.StatusConflict), nil
+		return api.NewHTTPResponseError(http.StatusConflict,
+			fmt.Errorf(`failed to create new client as email "%s" already used`,
+				request.Email))
 	}
 
 	log.Printf(`Created new client "%s".`, client.GetStrID())
-	return api.NewHTTPResponseEmpty(http.StatusCreated), nil
+	return api.NewHTTPResponseEmpty(http.StatusCreated)
 }
 
-func main() { lambda.Start(handle) }
+func main() { api.Start(handle) }
