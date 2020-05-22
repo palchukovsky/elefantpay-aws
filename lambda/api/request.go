@@ -42,9 +42,9 @@ func newHTTPResponseEmpty(statusCode int) (*httpResponse, error) {
 	return newHTTPResponse(statusCode, &struct{}{})
 }
 
-func newHTTPResponseError(statusCode int, err error) (*httpResponse, error) {
+func newHTTPResponseEmptyError(statusCode int, err error) (*httpResponse, error) {
 	log.Printf(`Response with error code %d: "%v".`, statusCode, err)
-	return &httpResponse{StatusCode: statusCode, Body: "{}"}, nil
+	return newHTTPResponseEmpty(statusCode)
 }
 
 func newHTTPResponseBadParam(message string, err error) (*httpResponse, error) {
@@ -55,5 +55,9 @@ func newHTTPResponseBadParam(message string, err error) (*httpResponse, error) {
 }
 
 func newHTTPResponseInternalServerError(err error) (*httpResponse, error) {
-	return &httpResponse{StatusCode: http.StatusInternalServerError}, err
+	return newHTTPResponseEmptyError(http.StatusInternalServerError, err)
 }
+
+// func newHTTPResponseUnauthorized() (*httpResponse, error) {
+// 	return &httpResponse{StatusCode: http.StatusUnauthorized}, nil
+// }

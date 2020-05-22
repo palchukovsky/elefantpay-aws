@@ -1,26 +1,40 @@
 package elefant
 
-import "fmt"
+import (
+	"fmt"
 
-type clientID = uint64
+	"github.com/google/uuid"
+)
+
+// ClientID is a client unique ID.
+type ClientID = uuid.UUID
+
+func newClientID() ClientID { return uuid.New() }
+
+// ParseClientID parses client ID in string.
+func ParseClientID(source string) (ClientID, error) {
+	return uuid.Parse(source)
+}
 
 // Client describes system client.
 type Client interface {
-	GetStrID() string
+	GetID() ClientID
+	GetVerboseID() string
 	GetEmail() string
 }
 
-func newClient(id clientID, email string) *client {
+func newClient(id ClientID, email string) *client {
 	return &client{id: id, email: email}
 }
 
 type client struct {
-	id    clientID
+	id    ClientID
 	email string
 }
 
+func (client *client) GetID() ClientID  { return client.id }
 func (client *client) GetEmail() string { return client.email }
 
-func (client *client) GetStrID() string {
-	return fmt.Sprintf("%s(%d)", client.email, client.id)
+func (client *client) GetVerboseID() string {
+	return fmt.Sprintf("%s (%s)", client.id, client.email)
 }

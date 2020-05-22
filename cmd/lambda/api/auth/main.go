@@ -1,0 +1,102 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"regexp"
+
+	"github.com/aws/aws-lambda-go/events"
+	aws "github.com/aws/aws-lambda-go/lambda"
+	"github.com/palchukovsky/elefantpay-aws/elefant"
+	"github.com/palchukovsky/elefantpay-aws/lambda/api"
+)
+
+type request = events.APIGatewayCustomAuthorizerRequest
+type response = events.APIGatewayCustomAuthorizerResponse
+
+var db elefant.DB
+var tokenRegexp *regexp.Regexp
+
+func newPolicy(effect, resource string) *response {
+	return &response{
+		PolicyDocument: events.APIGatewayCustomAuthorizerPolicy{
+			Version: "2012-10-17",
+			Statement: []events.IAMPolicyStatement{
+				{
+					Action:   []string{"execute-api:Invoke"},
+					Effect:   effect,
+					Resource: []string{resource},
+				},
+			},
+		},
+	}
+}
+
+func getToken(request *request) (*elefant.AuthTokenID, error) {
+	match := tokenRegexp.FindStringSubmatch(request.AuthorizationToken)
+	if match == nil || len(match) != 2 {
+		return nil, fmt.Errorf(`wrong token format: "%s"`,
+			request.AuthorizationToken)
+	}
+	result, err := elefant.ParseAuthTokenID(match[1])
+	if err != nil {
+		return nil, fmt.Errorf(`failed to parse token "%s" (%s): "%v"`,
+			request.AuthorizationToken, match[1], err)
+	}
+	return &result, nil
+}
+
+func handle(ctx context.Context, request *request) (*response, error) {
+	token, err := getToken(request)
+	if err != nil {
+		log.Printf(`Failed to get token: "%v".`, err)
+		return &response{}, errors.New("Unauthorized") // generates 401
+	}
+
+	var tx elefant.DBTrans
+	tx, err = db.Begin()
+	if err != nil {
+		return &response{}, fmt.Errorf(`failed to begin DB-transaction: "%v"`, err)
+	}
+	defer tx.Rollback()
+
+	var newToken *elefant.AuthTokenID
+	var client *elefant.ClientID
+	newToken, client, err = tx.RecreateAuth(*token)
+	if err != nil {
+		return &response{}, fmt.Errorf(`failed to execute DB-request: "%v"`, err)
+	}
+	if newToken == nil || client == nil {
+		return newPolicy("Deny", request.MethodArn), nil
+	}
+	err = tx.Commit()
+	if err != nil {
+		return &response{}, fmt.Errorf(`failed to commit DB-transaction: "%v"`, err)
+	}
+	log.Printf(`Auth-token recreated: "%s" -> "%s" for client "%s".`,
+		token, *newToken, *client)
+
+	result := newPolicy("Allow", request.MethodArn)
+	result.PrincipalID = client.String()
+	result.Context = map[string]interface{}{
+		api.AuthTokenHeaderName: newToken.String()}
+	return result, nil
+}
+
+func main() {
+	var err error
+	db, err = elefant.NewDB()
+	if err != nil {
+		log.Panicf(`Failed to init DB: "%v".`, err)
+	}
+
+	tokenRegexp, err = regexp.Compile(
+		`^Bearer (\b[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-\b[0-9a-fA-F]{12}\b)$`)
+	if err != nil {
+		log.Panicf(`Failed to compile token-regexp: "%v".`, err)
+	}
+
+	aws.Start(handle)
+}

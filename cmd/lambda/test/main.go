@@ -26,10 +26,6 @@ func handle(*request) (*response, error) {
 		return nil, errors.New("no db")
 	}
 	log.Println("Starting...")
-	_, err := db.FindClientByCreds("x", "y")
-	if err != nil {
-		log.Printf(`"%v".`, err)
-	}
 	log.Println("Completed")
 	return &response{}, nil
 }

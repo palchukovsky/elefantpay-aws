@@ -53,6 +53,7 @@ help: ## Show this help.
 
 install:  ## Deploy current sources. Uses .env file wich has to have vars AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
 	@$(call echo_start)
+	$(call make_target,build)
 	docker run --env-file .env --rm ${IMAGE_TAG_BUILDER_BUILDER} /bin/sh -c \
 		"cd ${WORKDIR} && make deploy-lambda-api"
 	@$(call echo_success)
@@ -121,10 +122,19 @@ lint: ## Run linter.
 
 mock: ## Generate mock interfaces for unit-tests.
 
-
+define zip-lambda
+	zip --junk-paths bin/lambda/$(1).zip bin/lambda/$(1)/hello
+endef
 define build-lambda
 	GOOS=linux go build -o bin/lambda/$(1)/hello cmd/lambda/$(1)/main.go
-  zip --junk-paths bin/lambda/$(1).zip bin/lambda/$(1)/hello
+  $(call zip-lambda,$(1))
+endef
+define build-api-lambda
+	GOOS=linux go build \
+	 	-ldflags="-X 'main.lambdaName=$(1)'" \
+		-o bin/lambda/api/$(1)/hello \
+		cmd/lambda/api/lambda/main.go
+	$(call zip-lambda,api/$(1))
 endef
 define deploy-lambda
 	aws lambda update-function-code \
@@ -133,17 +143,29 @@ define deploy-lambda
 		--region ${AWS_REGION} \
 		--output text
 endef
+define deploy-api-lambda
+	$(call deploy-lambda,api/$(1),API$(1))
+endef
+define for-each-api-lambda
+	$(call $(1),ClientCreate)
+	$(call $(1),ClientLogin)
+	$(call $(1),ClientLogout)
+	$(call $(1),AccountList)
+	$(call $(1),AccountInfo)
+	$(call $(1),AccountBalanceUpdate)
+	$(call $(1),AccountHistory)
+endef
 
 build-lambda-api:
 	@$(call echo_start)
 	$(call build-lambda,test)
-	$(call build-lambda,api/client/create)
-	$(call build-lambda,api/client/login)
+	$(call build-lambda,api/auth)
+	$(call for-each-api-lambda,build-api-lambda)
 	@$(call echo_success)
 
 deploy-lambda-api:
 	@$(call echo_start)
 	$(call deploy-lambda,test,Test)
-	$(call deploy-lambda,api/client/create,APIClientCreate)
-	$(call deploy-lambda,api/client/login,APIClientLogin)
+	$(call deploy-lambda,api/auth,APIAuthorizer)
+	$(call for-each-api-lambda,deploy-api-lambda)
 	@$(call echo_success)

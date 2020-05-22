@@ -6,19 +6,22 @@ import (
 	"net/http"
 
 	"github.com/badoux/checkmail"
-	"github.com/google/uuid"
 	"github.com/palchukovsky/elefantpay-aws/elefant"
 )
 
-// CreateClientCreateLambda creates new instance of create-client lambda.
-func CreateClientCreateLambda() Lambda {
-	return createLambda(&createClientLambda{})
+////////////////////////////////////////////////////////////////////////////////
+
+type clientLambda struct{ db elefant.DB }
+
+func newClientLambda() clientLambda { return clientLambda{} }
+
+func (lambda *clientLambda) Init() error {
+	var err error
+	lambda.db, err = elefant.NewDB()
+	return err
 }
 
-// CreateClientLoginLambda creates new instance of login-client lambda.
-func CreateClientLoginLambda() Lambda {
-	return createLambda(&loginClientLambda{})
-}
+////////////////////////////////////////////////////////////////////////////////
 
 type clientRequest struct {
 	Email    string `json:"email"`
@@ -27,33 +30,15 @@ type clientRequest struct {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-type clientLambda struct {
-	db elefant.DB
+type clientCreateLambda struct{ clientLambda }
+
+func (*lambdaFactory) NewClientCreateLambda() lambdaImpl {
+	return &clientCreateLambda{clientLambda: newClientLambda()}
 }
 
-func (lambda *clientLambda) Init() error {
-	var err error
-	lambda.db, err = elefant.NewDB()
-	return err
-}
-
-func (lambda *clientLambda) CreateRequest() interface{} {
-	return &clientRequest{}
-}
-
-func (lambda *clientLambda) castRequest(request interface{}) *clientRequest {
-	return request.(*clientRequest)
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-type createClientLambda struct {
-	clientLambda
-}
-
-func (lambda *createClientLambda) Run(
-	requestInterface interface{}) (*httpResponse, error) {
-	request := lambda.castRequest(requestInterface)
+func (lambda *clientCreateLambda) Run(
+	lambdaRequest LambdaRequest) (*httpResponse, error) {
+	request := lambdaRequest.GetRequest().(*clientRequest)
 
 	if err := checkmail.ValidateFormat(request.Email); err != nil {
 		return newHTTPResponseBadParam("Email has invalid format",
@@ -66,47 +51,154 @@ func (lambda *createClientLambda) Run(
 				len(request.Password)))
 	}
 
-	client, err := lambda.db.CreateClient(request.Email, request.Password)
+	client, err := lambda.CreateClient(request)
 	if err != nil {
 		return newHTTPResponseInternalServerError(
 			fmt.Errorf(`failed to store new client record for request "%v": "%s"`,
 				*request, err))
 	}
 	if client == nil {
-		return newHTTPResponseError(http.StatusConflict,
+		return newHTTPResponseEmptyError(http.StatusConflict,
 			fmt.Errorf(`failed to create new client as email "%s" already used`,
 				request.Email))
 	}
 
-	log.Printf(`Created new client "%s".`, client.GetStrID())
+	log.Printf(`Created new client "%s".`, client.GetVerboseID())
 	return newHTTPResponseEmpty(http.StatusCreated)
+}
+
+func (*clientCreateLambda) CreateRequest() interface{} {
+	return &clientRequest{}
+}
+
+func (lambda *clientCreateLambda) CreateClient(
+	request *clientRequest) (elefant.Client, error) {
+
+	db, err := lambda.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Rollback()
+
+	var result elefant.Client
+	result, err = db.CreateClient(request.Email, request.Password)
+	if err != nil {
+		return nil, fmt.Errorf(`failed to insert new client record: "%v"`, err)
+	}
+	if result == nil {
+		// email is already used
+		return nil, nil
+	}
+
+	return result, db.Commit()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-type loginClientLambda struct {
-	clientLambda
+type clientLoginLambda struct{ clientLambda }
+
+func (*lambdaFactory) NewClientLoginLambda() lambdaImpl {
+	return &clientLoginLambda{clientLambda: newClientLambda()}
 }
 
-func (lambda *loginClientLambda) Run(
-	requestInterface interface{}) (*httpResponse, error) {
-	request := lambda.castRequest(requestInterface)
+func (lambda *clientLoginLambda) Run(
+	lambdaRequest LambdaRequest) (*httpResponse, error) {
+	request := lambdaRequest.GetRequest().(*clientRequest)
 
-	client, err := lambda.db.FindClientByCreds(request.Email, request.Password)
+	db, err := lambda.db.Begin()
 	if err != nil {
-		return newHTTPResponseInternalServerError(
-			fmt.Errorf(
-				`failed to find client record by email "%s" and password: "%s"`,
-				request.Email, err))
+		return nil, err
+	}
+	defer db.Rollback()
+
+	client, err := db.FindClientByCreds(request.Email, request.Password)
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to find client record by email "%s" and password: "%s"`,
+			request.Email, err))
 	}
 	if client == nil {
 		return newHTTPResponseEmpty(http.StatusNotFound)
 	}
 
-	log.Printf(`Created new session for client "%s".`, client.GetStrID())
+	var token elefant.AuthToken
+	token, err = db.CreateAuth(client)
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to create client auth_token for client "%s": "%v"`,
+			client.GetID(), err))
+	}
+
+	err = db.Commit()
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to commit "%s": "%v"`, client.GetID(), err))
+	}
+
+	log.Printf(`Created new auth_token "%s" for client "%s".`,
+		token.GetID(), client.GetVerboseID())
 	return newHTTPResponseWithHeaders(http.StatusCreated,
 		&struct{}{},
-		map[string]string{AuthTokenHeaderName: uuid.New().String()})
+		map[string]string{AuthTokenHeaderName: token.GetID().String()})
+}
+
+func (lambda *clientLoginLambda) CreateRequest() interface{} {
+	return &clientRequest{}
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+type clientLogoutLambda struct{ clientLambda }
+
+func (*lambdaFactory) NewClientLogoutLambda() lambdaImpl {
+	return &clientLogoutLambda{clientLambda: newClientLambda()}
+}
+
+func (*clientLogoutLambda) CreateRequest() interface{} { return nil }
+
+func (lambda *clientLogoutLambda) Run(
+	request LambdaRequest) (*httpResponse, error) {
+
+	db, err := lambda.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Rollback()
+
+	tokenArg, hasToken := request.GetPathArgs()["authToken"]
+	if !hasToken {
+		if err = db.RevokeAllClientAuth(request.GetClientID()); err != nil {
+			return newHTTPResponseInternalServerError(fmt.Errorf(
+				`failed to revoke all auth-tokens: "%v"`, err))
+		}
+	} else {
+		token, err := elefant.ParseAuthTokenID(tokenArg)
+		if err != nil {
+			return newHTTPResponseBadParam("auth_token has invalid format",
+				fmt.Errorf(`failed to parse auth_token "%s": "%v"`, tokenArg, err))
+		}
+		var has bool
+		has, err = db.RevokeClientAuth(token, request.GetClientID())
+		if err != nil {
+			return newHTTPResponseInternalServerError(fmt.Errorf(
+				`failed to revoke auth_token "%s": "%v"`, token, err))
+		}
+		if !has {
+			return newHTTPResponseEmpty(http.StatusNotFound)
+		}
+	}
+
+	if err = db.Commit(); err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to commit: "%v"`, err))
+	}
+
+	if hasToken {
+		log.Printf(`Auth-token "%s" revoked.`, tokenArg)
+	} else {
+		log.Printf(`All auth_token revoked.`)
+	}
+	return newHTTPResponseEmpty(http.StatusOK)
 }
 
 ////////////////////////////////////////////////////////////////////////////////

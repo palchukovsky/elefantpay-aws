@@ -4,18 +4,31 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	_ "github.com/lib/pq" // Postgres driver initialization.
 )
 
 // DB describes ElefantPay database interface.
 type DB interface {
-	// CreateClient creates new client.
-	// Returns nil with nil-error if client credentials are already used.
-	CreateClient(email, password string) (Client, error)
-	// Find Client tries to find the client by email with password validation.
-	// Returns nil if client is not existent or password is wrong.
+	Begin() (DBTrans, error)
+	BeginLocked() (DBTrans, error)
+}
+
+// DBTrans describes interface to execute database queries.
+type DBTrans interface {
+	Commit() error
+	Rollback()
+
 	FindClientByCreds(email, password string) (Client, error)
+	FindAuth(AuthTokenID) (AuthToken, error)
+
+	CreateClient(email, password string) (Client, error)
+
+	CreateAuth(Client) (AuthToken, error)
+	RecreateAuth(AuthTokenID) (*AuthTokenID, *ClientID, error)
+	RevokeAllClientAuth(ClientID) error
+	RevokeClientAuth(AuthTokenID, ClientID) (bool, error)
 }
 
 // NewDB creates new database connection.
@@ -40,50 +53,15 @@ func NewDB() (DB, error) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-type db struct {
-	handle *sql.DB
-}
+type db struct{ handle *sql.DB }
 
-func (db *db) CreateClient(email, password string) (Client, error) {
-	tx, err := db.beginTx(true)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
+func (db *db) Begin() (DBTrans, error)       { return db.begin(false) }
+func (db *db) BeginLocked() (DBTrans, error) { return db.begin(true) }
 
-	if id, err := tx.QueryClientID(email); err != nil {
-		return nil, fmt.Errorf(`failed to query email ID: "%v"`, err)
-	} else if id != nil {
-		// email is already used
-		return nil, nil
-	}
-
-	var client Client
-	client, err = tx.AddClient(email, password)
-	if err != nil {
-		return nil, fmt.Errorf(`failed to insert new client record: "%v"`, err)
-	}
-	return client, tx.Commit()
-}
-
-func (db *db) FindClientByCreds(email, password string) (Client, error) {
-	tx, err := db.beginTx(false)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	var result Client
-	result, err = tx.QueryClientWithPassword(email, password)
-	if err != nil {
-		return nil, fmt.Errorf(`failed to query: "%v"`, err)
-	}
-	return result, nil
-}
-
-func (db *db) beginTx(lock bool) (*dbTrans, error) {
+func (db *db) begin(lock bool) (*dbTrans, error) {
 	tx, err := db.handle.Begin()
 	if err != nil {
-		return nil, fmt.Errorf(`failed to start transaction: "%v"`, err)
+		return nil, err
 	}
 	return &dbTrans{tx: tx, lock: lock}, nil
 }
@@ -91,8 +69,9 @@ func (db *db) beginTx(lock bool) (*dbTrans, error) {
 ////////////////////////////////////////////////////////////////////////////////
 
 type dbTrans struct {
-	tx   *sql.Tx
-	lock bool
+	tx     *sql.Tx
+	lock   bool
+	isUsed bool
 }
 
 func (t *dbTrans) Commit() error {
@@ -118,35 +97,15 @@ func (t *dbTrans) Rollback() {
 	t.tx = nil
 }
 
-func (t *dbTrans) QueryClientID(email string) (*clientID, error) {
-	query := "SELECT id FROM client WHERE email = $1"
-	if t.lock {
-		query += " FOR UPDATE"
-	}
-	row := t.tx.QueryRow(query, email)
-	result := new(uint64)
-	err := row.Scan(result)
-	switch {
-	case err == sql.ErrNoRows:
-		result = nil
-	case err != nil:
-		return nil, err
-	}
-	t.lock = false
-	return result, nil
-}
+func (t *dbTrans) FindClientByCreds(email, password string) (Client, error) {
 
-func (t *dbTrans) QueryClientWithPassword(
-	email, password string) (Client, error) {
-	query := "SELECT " +
-		"id, email, (password = crypt($2, password)) AS password_match " +
-		"FROM client WHERE email = $1"
-	if t.lock {
-		query += " FOR UPDATE"
-	}
+	query := `SELECT
+		id, email, (password = crypt($2, password)) AS password_match
+		FROM client WHERE email = $1`
+	t.checkQuery(&query)
 
 	row := t.tx.QueryRow(query, email, password)
-	var id clientID
+	var id ClientID
 	var passwordMatch bool
 	err := row.Scan(&id, &email, &passwordMatch)
 	var result Client
@@ -161,17 +120,139 @@ func (t *dbTrans) QueryClientWithPassword(
 		}
 	}
 
-	t.lock = false
+	t.checkExecution()
 	return result, nil
 }
 
-func (t *dbTrans) AddClient(email, password string) (Client, error) {
-	row := t.tx.QueryRow("INSERT INTO client(email, password) "+
-		"VALUES($1, crypt($2, gen_salt('bf'))) RETURNING id, email",
-		email, password)
-	var id clientID
-	if err := row.Scan(&id, &email); err != nil {
+func (t *dbTrans) FindAuth(token AuthTokenID) (AuthToken, error) {
+	query := `SELECT token, client, email FROM auth_token a
+		LEFT JOIN client c ON c.id = a.client
+		WHERE token = '$1'`
+	t.checkQuery(&query)
+
+	row := t.tx.QueryRow(query, token)
+	var client ClientID
+	var email string
+	err := row.Scan(&token, &client, &email)
+	var result AuthToken
+	switch {
+	case err == sql.ErrNoRows:
+		break
+	case err != nil:
+		return nil, err
+	default:
+		result = newAuthToken(token, newClient(client, email))
+	}
+
+	t.checkExecution()
+	return result, nil
+}
+
+func (t *dbTrans) CreateClient(email, password string) (Client, error) {
+	query := `INSERT INTO client(id, email, password, time)
+		VALUES($1, $2, crypt($3, gen_salt('bf')), $4)
+		RETURNING id, email`
+	t.checkQuery(&query)
+	row := t.tx.QueryRow(query, newClientID(), email, password, time.Now().UTC())
+
+	var id ClientID
+	err := row.Scan(&id, &email)
+	var result Client
+	switch {
+	case err == sql.ErrNoRows:
+		break
+	case err != nil:
+		return nil, err
+	default:
+		result = newClient(id, email)
+	}
+
+	return result, nil
+}
+
+func (t *dbTrans) CreateAuth(client Client) (AuthToken, error) {
+	query := `INSERT INTO auth_token (token, client, "time", "update")
+		VALUES ($1, $2, $3, $4)
+		RETURNING token`
+	t.checkQuery(&query)
+
+	time := time.Now().UTC()
+	row := t.tx.QueryRow(query, newAuthTokenID(), client.GetID(), time, time)
+	var id AuthTokenID
+	if err := row.Scan(&id); err != nil {
 		return nil, err
 	}
-	return newClient(id, email), nil
+
+	t.checkExecution()
+	return newAuthToken(id, client), nil
+}
+
+func (t *dbTrans) RecreateAuth(
+	token AuthTokenID) (*AuthTokenID, *ClientID, error) {
+
+	query := `UPDATE auth_token SET token = $2, update = $3, token_prev = token
+		WHERE token = $1
+		RETURNING token, client`
+	t.checkQuery(&query)
+
+	row := t.tx.QueryRow(query, token, newAuthTokenID(), time.Now().UTC())
+	var client ClientID
+	err := row.Scan(&token, &client)
+	switch {
+	case err == sql.ErrNoRows:
+		break
+	case err != nil:
+		return nil, nil, err
+	}
+
+	t.checkExecution()
+	if err != nil {
+		// token is not found
+		return nil, nil, nil
+	}
+	return &token, &client, nil
+}
+
+func (t *dbTrans) RevokeAllClientAuth(client ClientID) error {
+	query := `DELETE FROM auth_token WHERE client = $1`
+	t.checkQuery(&query)
+	if _, err := t.tx.Exec(query, client); err != nil {
+		return err
+	}
+	t.checkExecution()
+	return nil
+}
+
+func (t *dbTrans) RevokeClientAuth(
+	token AuthTokenID, client ClientID) (bool, error) {
+	query := `DELETE FROM auth_token
+		WHERE client = $2 AND (token = $1 OR token_prev = $1)`
+	t.checkQuery(&query)
+
+	result, err := t.tx.Exec(query, token, client)
+	if err != nil {
+		return false, err
+	}
+
+	t.checkExecution()
+
+	var rowsAffected int64
+	rowsAffected, err = result.RowsAffected()
+	if err != nil {
+		return true, err
+	}
+	return rowsAffected > 0, nil
+}
+
+func (t *dbTrans) checkQuery(query *string) {
+	if t.lock {
+		*query += " FOR UPDATE"
+	}
+}
+
+func (t *dbTrans) checkExecution() {
+	if t.lock {
+		t.lock = false
+	}
+	t.isUsed = true
 }
