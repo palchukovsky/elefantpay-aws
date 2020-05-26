@@ -19,7 +19,7 @@ type DB interface {
 }
 
 // NewDB creates new database connection.
-func NewDB() DB {
+func NewDB() (DB, error) {
 	host := "elefantpay.cwcrd2plajnf.eu-central-1.rds.amazonaws.com"
 	dns := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=verify-full",
 		"postgres", "vR1RNU&SxnY6H0H3OvR1GKQPOexB2rBZpcOV", host, "elefantpay")
@@ -28,16 +28,14 @@ func NewDB() DB {
 	var err error
 	result.handle, err = sql.Open("postgres", dns)
 	if err != nil {
-		log.Printf(`Failed to open DB object: "%v".`, err)
-		return nil
+		return nil, fmt.Errorf(`failed to open DB object: "%v"`, err)
 	}
 
 	if err = result.handle.Ping(); err != nil {
-		log.Printf(`Failed to ping DB: "%v".`, err)
-		return nil
+		return nil, fmt.Errorf(`failed to ping DB: "%v"`, err)
 	}
 
-	return result
+	return result, nil
 }
 
 ////////////////////////////////////////////////////////////////////////////////

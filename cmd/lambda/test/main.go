@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 
 	aws "github.com/aws/aws-lambda-go/lambda"
@@ -13,10 +14,17 @@ type response struct{}
 var db elefant.DB
 
 func init() {
-	db = elefant.NewDB()
+	var err error
+	db, err = elefant.NewDB()
+	if err != nil {
+		log.Printf(`Failed to init DB: "%v".`, err)
+	}
 }
 
 func handle(*request) (*response, error) {
+	if db == nil {
+		return nil, errors.New("no db")
+	}
 	log.Println("Starting...")
 	_, err := db.FindClientByCreds("x", "y")
 	if err != nil {

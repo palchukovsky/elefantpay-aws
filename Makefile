@@ -123,10 +123,8 @@ mock: ## Generate mock interfaces for unit-tests.
 
 
 define build-lambda
-	GOOS=linux go build -o bin/lambda/$(1)/hello lambda/$(1)/main.go
+	GOOS=linux go build -o bin/lambda/$(1)/hello cmd/lambda/$(1)/main.go
   zip --junk-paths bin/lambda/$(1).zip bin/lambda/$(1)/hello
-endef
-define configure-deploy
 endef
 define deploy-lambda
 	aws lambda update-function-code \
@@ -145,7 +143,6 @@ build-lambda-api:
 
 deploy-lambda-api:
 	@$(call echo_start)
-	$(call configure-deploy)
 	$(call deploy-lambda,test,Test)
 	$(call deploy-lambda,api/client/create,APIClientCreate)
 	$(call deploy-lambda,api/client/login,APIClientLogin)
