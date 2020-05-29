@@ -51,7 +51,7 @@ func (lambda *clientCreateLambda) Run(
 				len(request.Password)))
 	}
 
-	client, err := lambda.CreateClient(request)
+	client, accounts, err := lambda.CreateClient(request)
 	if err != nil {
 		return newHTTPResponseInternalServerError(
 			fmt.Errorf(`failed to store new client record for request "%v": "%s"`,
@@ -64,6 +64,10 @@ func (lambda *clientCreateLambda) Run(
 	}
 
 	log.Printf(`Created new client "%s".`, client.GetVerboseID())
+	for _, acc := range accounts {
+		log.Printf(`Created new client "%s" account "%s" (%s).`,
+			client.GetID(), acc.GetID(), acc.GetCurrency().GetISO())
+	}
 	return newHTTPResponseEmpty(http.StatusCreated)
 }
 
@@ -72,25 +76,36 @@ func (*clientCreateLambda) CreateRequest() interface{} {
 }
 
 func (lambda *clientCreateLambda) CreateClient(
-	request *clientRequest) (elefant.Client, error) {
+	request *clientRequest) (elefant.Client, []elefant.Account, error) {
 
 	db, err := lambda.db.Begin()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer db.Rollback()
 
-	var result elefant.Client
-	result, err = db.CreateClient(request.Email, request.Password)
+	var client elefant.Client
+	client, err = db.CreateClient(request.Email, request.Password)
 	if err != nil {
-		return nil, fmt.Errorf(`failed to insert new client record: "%v"`, err)
+		return nil, nil, fmt.Errorf(`failed to create new client record: "%v"`, err)
 	}
-	if result == nil {
+	if client == nil {
 		// email is already used
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	return result, db.Commit()
+	var account elefant.Account
+	account, err = db.CreateAccount(elefant.NewCurrency("NGN"), client.GetID())
+	if err != nil {
+		return nil, nil, fmt.Errorf(`failed to create new account record: "%v"`,
+			err)
+	}
+
+	if err := db.Commit(); err != nil {
+		return nil, nil, fmt.Errorf(`failed to commit: "%v"`, err)
+	}
+
+	return client, []elefant.Account{account}, db.Commit()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -121,7 +136,7 @@ func (lambda *clientLoginLambda) Run(
 		return newHTTPResponseEmpty(http.StatusNotFound)
 	}
 
-	var token elefant.AuthToken
+	var token elefant.AuthTokenID
 	token, err = db.CreateAuth(client)
 	if err != nil {
 		return newHTTPResponseInternalServerError(fmt.Errorf(
@@ -132,14 +147,14 @@ func (lambda *clientLoginLambda) Run(
 	err = db.Commit()
 	if err != nil {
 		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to commit "%s": "%v"`, client.GetID(), err))
+			`failed to commit "%s": "%v"`, client, err))
 	}
 
 	log.Printf(`Created new auth_token "%s" for client "%s".`,
-		token.GetID(), client.GetVerboseID())
+		token, client.GetVerboseID())
 	return newHTTPResponseWithHeaders(http.StatusCreated,
 		&struct{}{},
-		map[string]string{AuthTokenHeaderName: token.GetID().String()})
+		map[string]string{AuthTokenHeaderName: token.String()})
 }
 
 func (lambda *clientLoginLambda) CreateRequest() interface{} {
@@ -174,7 +189,7 @@ func (lambda *clientLogoutLambda) Run(
 	} else {
 		token, err := elefant.ParseAuthTokenID(tokenArg)
 		if err != nil {
-			return newHTTPResponseBadParam("auth_token has invalid format",
+			return newHTTPResponseBadParam("Auth-token has invalid format",
 				fmt.Errorf(`failed to parse auth_token "%s": "%v"`, tokenArg, err))
 		}
 		var has bool

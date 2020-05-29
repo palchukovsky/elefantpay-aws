@@ -61,6 +61,7 @@ func (lambda *lambda) Start() {
 type LambdaRequest interface {
 	GetRequest() interface{}
 	GetPathArgs() map[string]string
+	GetQueryArgs() map[string]string
 
 	GetClientID() elefant.ClientID
 }
@@ -180,4 +181,7 @@ func (request *lambdaRequest) GetClientID() elefant.ClientID {
 
 func (request *lambdaRequest) GetPathArgs() map[string]string {
 	return request.Request.PathParameters
+}
+func (request *lambdaRequest) GetQueryArgs() map[string]string {
+	return request.Request.QueryStringParameters
 }

@@ -1,7 +1,10 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/palchukovsky/elefantpay-aws/elefant"
 )
@@ -28,8 +31,31 @@ func (*lambdaFactory) NewAccountListLambda() lambdaImpl {
 
 func (*accountListLambda) CreateRequest() interface{} { return nil }
 
-func (*accountListLambda) Run(LambdaRequest) (*httpResponse, error) {
-	return newHTTPResponseEmpty(http.StatusNotImplemented)
+type accountInfo struct {
+	Currency string `json:"currency"`
+}
+
+func (lambda *accountListLambda) Run(
+	request LambdaRequest) (*httpResponse, error) {
+	db, err := lambda.db.Begin()
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to begin DB transaction: "%v"`, err))
+	}
+	defer db.Rollback()
+	var accounts []elefant.Account
+	accounts, err = db.GetClientAccounts(request.GetClientID())
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to query DB: "%v"`, err))
+	}
+	result := map[string]*accountInfo{}
+	for _, acc := range accounts {
+		result[acc.GetID().String()] = &accountInfo{
+			Currency: acc.GetCurrency().GetISO(),
+		}
+	}
+	return newHTTPResponse(http.StatusOK, result)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -40,10 +66,53 @@ func (*lambdaFactory) NewAccountInfoLambda() lambdaImpl {
 	return &accountInfoLambda{accountLambda: newAccountLambda()}
 }
 
+type accountDetails struct {
+	Currency string        `json:"currency"`
+	Balance  float64       `json:"balance"`
+	Revision int64         `json:"revision"`
+	History  []interface{} `json:"history"`
+}
+
 func (*accountInfoLambda) CreateRequest() interface{} { return nil }
 
-func (*accountInfoLambda) Run(LambdaRequest) (*httpResponse, error) {
-	return newHTTPResponseEmpty(http.StatusNotImplemented)
+func (lambda *accountInfoLambda) Run(
+	request LambdaRequest) (*httpResponse, error) {
+	db, err := lambda.db.Begin()
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to begin DB transaction: "%v"`, err))
+	}
+	defer db.Rollback()
+
+	id, err := elefant.ParseAccountID(request.GetPathArgs()["accountId"])
+	if err != nil {
+		return newHTTPResponseBadParam("Account ID has invalid format",
+			fmt.Errorf(`failed to parse account ID "%s": "%v"`,
+				request.GetPathArgs()["accountId"], err))
+	}
+
+	revisionStr, hasRevision := request.GetQueryArgs()["from"]
+	if !hasRevision {
+		return newHTTPResponseBadParam("From-revision is not provided", errors.New(
+			"from-revision is not provided"))
+	}
+	var revision int64
+	revision, err = strconv.ParseInt(revisionStr, 10, 32)
+	if err != nil {
+		return newHTTPResponseBadParam("From-revision has wrong format", fmt.Errorf(
+			`failed to parse revision "%s": "%v"`, revisionStr, err))
+	}
+
+	var account elefant.Account
+	account, err = db.FindAccountUpdate(id, request.GetClientID(), revision)
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to query DB: "%v"`, err))
+	}
+	return newHTTPResponse(http.StatusOK, &accountDetails{
+		Currency: account.GetCurrency().GetISO(),
+		Balance:  account.GetBalance(),
+		Revision: account.GetRevision()})
 }
 
 ////////////////////////////////////////////////////////////////////////////////
