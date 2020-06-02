@@ -51,7 +51,10 @@ func (lambda *clientCreateLambda) Run(
 				len(request.Password)))
 	}
 
-	client, accounts, err := lambda.CreateClient(request)
+	httpRequest := *lambdaRequest.GetHTTPRequest()
+	httpRequest.Body = "" // to remove secure info.
+
+	client, accounts, err := lambda.CreateClient(request, &httpRequest)
 	if err != nil {
 		return newHTTPResponseInternalServerError(
 			fmt.Errorf(`failed to store new client record for request "%v": "%s"`,
@@ -76,7 +79,8 @@ func (*clientCreateLambda) CreateRequest() interface{} {
 }
 
 func (lambda *clientCreateLambda) CreateClient(
-	request *clientRequest) (elefant.Client, []elefant.Account, error) {
+	request *clientRequest,
+	httpRequest interface{}) (elefant.Client, []elefant.Account, error) {
 
 	db, err := lambda.db.Begin()
 	if err != nil {
@@ -85,7 +89,7 @@ func (lambda *clientCreateLambda) CreateClient(
 	defer db.Rollback()
 
 	var client elefant.Client
-	client, err = db.CreateClient(request.Email, request.Password)
+	client, err = db.CreateClient(request.Email, request.Password, httpRequest)
 	if err != nil {
 		return nil, nil, fmt.Errorf(`failed to create new client record: "%v"`, err)
 	}
@@ -136,8 +140,11 @@ func (lambda *clientLoginLambda) Run(
 		return newHTTPResponseEmpty(http.StatusNotFound)
 	}
 
+	httpRequest := *lambdaRequest.GetHTTPRequest()
+	httpRequest.Body = "" // to remove secure info
+
 	var token elefant.AuthTokenID
-	token, err = db.CreateAuth(client)
+	token, err = db.CreateAuth(client, &httpRequest)
 	if err != nil {
 		return newHTTPResponseInternalServerError(fmt.Errorf(
 			`failed to create client auth_token for client "%s": "%v"`,

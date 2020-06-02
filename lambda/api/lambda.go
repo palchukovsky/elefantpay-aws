@@ -60,6 +60,7 @@ func (lambda *lambda) Start() {
 // LambdaRequest describes request to lambda.
 type LambdaRequest interface {
 	GetRequest() interface{}
+	GetHTTPRequest() *httpRequest
 	GetPathArgs() map[string]string
 	GetQueryArgs() map[string]string
 
@@ -156,6 +157,10 @@ func (request *lambdaRequest) Execute(impl lambdaImpl) {
 
 func (request *lambdaRequest) GetRequest() interface{} {
 	return request.implRequest
+}
+
+func (request *lambdaRequest) GetHTTPRequest() *httpRequest {
+	return request.Request
 }
 
 func (request *lambdaRequest) GetClientID() elefant.ClientID {

@@ -2,6 +2,7 @@ package elefant
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -20,10 +21,10 @@ type DBTrans interface {
 	Commit() error
 	Rollback()
 
-	CreateClient(email, password string) (Client, error)
+	CreateClient(email, password string, request interface{}) (Client, error)
 	FindClientByCreds(email, password string) (Client, error)
 
-	CreateAuth(Client) (AuthTokenID, error)
+	CreateAuth(client Client, request interface{}) (AuthTokenID, error)
 	RecreateAuth(AuthTokenID) (*AuthTokenID, *ClientID, error)
 	RevokeAllClientAuth(ClientID) error
 	RevokeClientAuth(AuthTokenID, ClientID) (bool, error)
@@ -129,11 +130,16 @@ func (t *dbTrans) FindClientByCreds(email, password string) (Client, error) {
 	return newClient(id, email), nil
 }
 
-func (t *dbTrans) CreateClient(email, password string) (Client, error) {
-	query := `INSERT INTO client(id, email, password, time)
-		VALUES($1, $2, crypt($3, gen_salt('bf')), $4)`
+func (t *dbTrans) CreateClient(
+	email, password string, request interface{}) (Client, error) {
+	requestStr, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	query := `INSERT INTO client(id, email, password, time, request)
+		VALUES($1, $2, crypt($3, gen_salt('bf')), $4, $5)`
 	id := newClientID()
-	_, err := t.tx.Exec(query, id, email, password, time.Now().UTC())
+	_, err = t.tx.Exec(query, id, email, password, time.Now().UTC(), requestStr)
 	if err != nil {
 		if t.isDuplicateErr(err) {
 			return nil, nil
@@ -143,12 +149,18 @@ func (t *dbTrans) CreateClient(email, password string) (Client, error) {
 	return newClient(id, email), nil
 }
 
-func (t *dbTrans) CreateAuth(client Client) (AuthTokenID, error) {
-	query := `INSERT INTO auth_token (token, client, "time", "update")
-		VALUES ($1, $2, $3, $4)`
+func (t *dbTrans) CreateAuth(
+	client Client, request interface{}) (AuthTokenID, error) {
 	token := newAuthTokenID()
+	requestStr, err := json.Marshal(request)
+	if err != nil {
+		return token, err
+	}
+	query := `INSERT INTO auth_token (token, client, "time", "update", request)
+		VALUES ($1, $2, $3, $4, $5)`
 	time := time.Now().UTC()
-	result, err := t.tx.Exec(query, token, client.GetID(), time, time)
+	var result sql.Result
+	result, err = t.tx.Exec(query, token, client.GetID(), time, time, requestStr)
 	if err != nil {
 		return token, err
 	}
