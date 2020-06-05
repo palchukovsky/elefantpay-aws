@@ -17,25 +17,33 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
-func newHTTPResponse(statusCode int, data interface{}) (*httpResponse, error) {
+func newHTTPResponseWithBody(
+	statusCode int,
+	body string,
+	headers map[string]string) (*httpResponse, error) {
+	return &httpResponse{
+			StatusCode: statusCode,
+			Body:       body,
+			Headers:    headers},
+		nil
+}
+
+func newHTTPResponse(
+	statusCode int, data interface{}) (*httpResponse, error) {
 	return newHTTPResponseWithHeaders(statusCode, data, map[string]string{})
 }
 
 func newHTTPResponseWithHeaders(
-	statusCode int, data interface{},
+	statusCode int,
+	data interface{},
 	headers map[string]string) (*httpResponse, error) {
-
 	body, err := json.Marshal(data)
 	if err != nil {
 		return newHTTPResponseInternalServerError(fmt.Errorf(
 			`failed serialize request response with status code %d: "%s"`,
 			statusCode, err))
 	}
-	return &httpResponse{
-			StatusCode: statusCode,
-			Body:       string(body),
-			Headers:    headers},
-		nil
+	return newHTTPResponseWithBody(statusCode, string(body), headers)
 }
 
 func newHTTPResponseEmpty(statusCode int) (*httpResponse, error) {
@@ -52,6 +60,10 @@ func newHTTPResponseBadParam(message string, err error) (*httpResponse, error) {
 	log.Printf(`Response with error code %d: "%v" (%s).`,
 		statusCode, err, message)
 	return newHTTPResponse(statusCode, &errorResponse{Message: message})
+}
+
+func newHTTPResponseNoContent() (*httpResponse, error) {
+	return newHTTPResponseWithBody(http.StatusNoContent, "", map[string]string{})
 }
 
 func newHTTPResponseInternalServerError(err error) (*httpResponse, error) {

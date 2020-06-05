@@ -211,7 +211,7 @@ func (t *dbTrans) CreateAccount(
 		VALUES($1, $2, $3, $4, $5, $6)`
 	id := newAccountID()
 	balance := .0
-	revision := int64(0)
+	revision := int64(1)
 	result, err := t.tx.Exec(
 		query, id, client, currency.GetISO(), time.Now().UTC(), balance, revision)
 	if err != nil {

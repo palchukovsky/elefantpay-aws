@@ -109,10 +109,14 @@ func (lambda *accountInfoLambda) Run(
 		return newHTTPResponseInternalServerError(fmt.Errorf(
 			`failed to query DB: "%v"`, err))
 	}
+	if account == nil {
+		return newHTTPResponseNoContent()
+	}
 	return newHTTPResponse(http.StatusOK, &accountDetails{
 		Currency: account.GetCurrency().GetISO(),
 		Balance:  account.GetBalance(),
-		Revision: account.GetRevision()})
+		Revision: account.GetRevision(),
+		History:  []interface{}{}})
 }
 
 ////////////////////////////////////////////////////////////////////////////////
