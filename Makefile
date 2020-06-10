@@ -10,6 +10,7 @@ BUILD = local
 AWS_PRODUCT = elefantpay
 AWS_REGION = eu-central-1
 AWS_ACCOUNT_ID = 102160531127
+AWS_GATEWAY_ID = u46yfhcpq3
 
 GO_VER = 1.14
 NODE_OS_NAME = alpine
@@ -33,7 +34,7 @@ LAMBDA_LFFLAGS := -X 'elefant.AWSAccountID=${AWS_ACCOUNT_ID}'
 API_LAMBDA_PREFIX := API_
 
 IMAGE_TAG_BUILDER_GOLANG = ${IMAGES_REPO}${PRODUCT}.golang:${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG}
-IMAGE_TAG_BUILDER_BUILDER = ${IMAGES_REPO}${PRODUCT}.builder:${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG}
+IMAGE_TAG_BUILDER_BUILDER = ${IMAGES_REPO}${PRODUCT}.builder:${IMAGE_TAG}
 
 
 define echo_start
@@ -159,8 +160,19 @@ define deploy-lambda
 		--region ${AWS_REGION} \
 		--output text
 endef
+define permit-lambda-for-gateway
+	aws lambda add-permission \
+		--function-name "arn:aws:lambda:${AWS_REGION}:${AWS_ACCOUNT_ID}:function:${LAMBDA_PREFIX}${1}" \
+		--source-arn "arn:aws:execute-api:${AWS_REGION}:${AWS_ACCOUNT_ID}:${AWS_GATEWAY_ID}/*" \
+		--principal apigateway.amazonaws.com \
+		--statement-id 92fd0de9-bf15-4136-97a8-a5d7db4c9cba \
+		--action lambda:InvokeFunction \
+		--region ${AWS_REGION} \
+		--output text
+endef
 define deploy-api-lambda
 	$(call deploy-lambda,api/${1},${API_LAMBDA_PREFIX}${1},api)
+	$(call permit-lambda-for-gateway,${API_LAMBDA_PREFIX}${1})
 endef
 define for-each-api-lambda
 	$(call ${1},ClientCreate)
@@ -181,7 +193,12 @@ build-lambda-api:
 
 deploy-lambda-api:
 	@$(call echo_start)
+
 	$(call deploy-lambda,test,Test,test)
+
 	$(call deploy-lambda,api/auth,${API_LAMBDA_PREFIX}Authorizer,api)
+	$(call permit-lambda-for-gateway,${API_LAMBDA_PREFIX}Authorizer)
+
 	$(call for-each-api-lambda,deploy-api-lambda)
+
 	@$(call echo_success)
