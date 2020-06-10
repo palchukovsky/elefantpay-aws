@@ -1,12 +1,15 @@
-TAG := dev
+VER := dev
+TAG := ${VER}
 ORGANIZATION = palchukovsky
 PRODUCT = elefantpay-aws
-CODE_REPO = github.org/palchukovsky/elefantpay-aws
+CODE_REPO = github.org/${ORGANIZATION}/${PRODUCT}
 IMAGES_REPO =
 MAINTAINER = local
 COMMIT = local
 BUILD = local
+AWS_PRODUCT = elefantpay
 AWS_REGION = eu-central-1
+AWS_ACCOUNT_ID = 102160531127
 
 GO_VER = 1.14
 NODE_OS_NAME = alpine
@@ -25,6 +28,9 @@ THIS_FILE := $(lastword ${MAKEFILE_LIST})
 GO_GET_CMD = go get -v
 IMAGE_TAG := $(subst /,_,${TAG})
 COMMA := ,
+LAMBDA_PREFIX := ${AWS_PRODUCT}_${VER}_
+LAMBDA_LFFLAGS := -X 'elefant.AWSAccountID=${AWS_ACCOUNT_ID}'
+API_LAMBDA_PREFIX := API_
 
 IMAGE_TAG_BUILDER_GOLANG = ${IMAGES_REPO}${PRODUCT}.golang:${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG}
 IMAGE_TAG_BUILDER_BUILDER = ${IMAGES_REPO}${PRODUCT}.builder:${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG}
@@ -44,7 +50,7 @@ define echo_success
 endef
 
 define make_target
-	$(MAKE) -f ./$(THIS_FILE) $(1)
+	$(MAKE) -f ./$(THIS_FILE) ${1}
 endef
 
 help: ## Show this help.
@@ -53,7 +59,6 @@ help: ## Show this help.
 
 install:  ## Deploy current sources. Uses .env file wich has to have vars AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
 	@$(call echo_start)
-	$(call make_target,build)
 	docker run --env-file .env --rm ${IMAGE_TAG_BUILDER_BUILDER} /bin/sh -c \
 		"cd ${WORKDIR} && make deploy-lambda-api"
 	@$(call echo_success)
@@ -123,37 +128,48 @@ lint: ## Run linter.
 mock: ## Generate mock interfaces for unit-tests.
 
 define zip-lambda
-	zip --junk-paths bin/lambda/$(1).zip bin/lambda/$(1)/hello
+	zip --junk-paths bin/${VER}/lambda/${1}.zip bin/${VER}/lambda/${1}/hello
 endef
 define build-lambda
-	GOOS=linux go build -o bin/lambda/$(1)/hello cmd/lambda/$(1)/main.go
-  $(call zip-lambda,$(1))
+	GOOS=linux go build \
+		-ldflags="${LAMBDA_LFFLAGS}" \
+		-o bin/${VER}/lambda/${1}/hello \
+		cmd/lambda/${1}/main.go
+  $(call zip-lambda,${1})
 endef
 define build-api-lambda
 	GOOS=linux go build \
-	 	-ldflags="-X 'main.lambdaName=$(1)'" \
-		-o bin/lambda/api/$(1)/hello \
+	 	-ldflags="-X 'main.lambdaName=${1}' ${LAMBDA_LFFLAGS}" \
+		-o bin/${VER}/lambda/api/${1}/hello \
 		cmd/lambda/api/lambda/main.go
-	$(call zip-lambda,api/$(1))
+	$(call zip-lambda,api/${1})
 endef
 define deploy-lambda
-	aws lambda update-function-code \
-		--function-name $(2) \
-		--zip-file fileb://bin/lambda/$(1).zip \
+	-aws lambda delete-function \
+		--function-name ${LAMBDA_PREFIX}${2} \
+		--region ${AWS_REGION} \
+		--output text
+	aws lambda create-function \
+		--function-name ${LAMBDA_PREFIX}${2} \
+		--runtime go1.x \
+		--zip-file fileb://bin/${VER}/lambda/${1}.zip \
+		--role arn:aws:iam::${AWS_ACCOUNT_ID}:role/${AWS_PRODUCT}BackendLambda \
+		--handler hello \
+		--tags product=${AWS_PRODUCT},project=backend,package=${3},version=${VER},maintainer=${MAINTAINER},commit=${COMMIT},build=${BUILD} \
 		--region ${AWS_REGION} \
 		--output text
 endef
 define deploy-api-lambda
-	$(call deploy-lambda,api/$(1),API$(1))
+	$(call deploy-lambda,api/${1},${API_LAMBDA_PREFIX}${1},api)
 endef
 define for-each-api-lambda
-	$(call $(1),ClientCreate)
-	$(call $(1),ClientLogin)
-	$(call $(1),ClientLogout)
-	$(call $(1),AccountList)
-	$(call $(1),AccountInfo)
-	$(call $(1),AccountBalanceUpdate)
-	$(call $(1),AccountHistory)
+	$(call ${1},ClientCreate)
+	$(call ${1},ClientLogin)
+	$(call ${1},ClientLogout)
+	$(call ${1},AccountList)
+	$(call ${1},AccountInfo)
+	$(call ${1},AccountBalanceUpdate)
+	$(call ${1},AccountHistory)
 endef
 
 build-lambda-api:
@@ -165,7 +181,7 @@ build-lambda-api:
 
 deploy-lambda-api:
 	@$(call echo_start)
-	$(call deploy-lambda,test,Test)
-	$(call deploy-lambda,api/auth,APIAuthorizer)
+	$(call deploy-lambda,test,Test,test)
+	$(call deploy-lambda,api/auth,${API_LAMBDA_PREFIX}Authorizer,api)
 	$(call for-each-api-lambda,deploy-api-lambda)
 	@$(call echo_success)

@@ -1,4 +1,4 @@
 package elefant
 
-// AWSAccountID is a AWS Account ID.
-const AWSAccountID = "102160531127"
+// AWSAccountID is a AWS Account ID. See Makefile for runtime value.
+var AWSAccountID = ""
