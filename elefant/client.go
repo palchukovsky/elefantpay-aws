@@ -1,8 +1,6 @@
 package elefant
 
 import (
-	"fmt"
-
 	"github.com/google/uuid"
 )
 
@@ -19,7 +17,6 @@ func ParseClientID(source string) (ClientID, error) {
 // Client describes system client.
 type Client interface {
 	GetID() ClientID
-	GetVerboseID() string
 	GetEmail() string
 }
 
@@ -34,7 +31,3 @@ type client struct {
 
 func (client *client) GetID() ClientID  { return client.id }
 func (client *client) GetEmail() string { return client.email }
-
-func (client *client) GetVerboseID() string {
-	return fmt.Sprintf("%s (%s)", client.id, client.email)
-}

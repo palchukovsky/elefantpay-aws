@@ -2,9 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"reflect"
+	"strconv"
 
 	aws "github.com/aws/aws-lambda-go/lambda"
 	"github.com/palchukovsky/elefantpay-aws/elefant"
@@ -61,10 +63,13 @@ func (lambda *lambda) Start() {
 type LambdaRequest interface {
 	GetRequest() interface{}
 	GetHTTPRequest() *httpRequest
-	GetPathArgs() map[string]string
-	GetQueryArgs() map[string]string
 
 	GetClientID() elefant.ClientID
+	ReadAuthToken() elefant.AuthTokenID
+
+	ReadPathArgAccountID() (elefant.AccountID, error)
+
+	ReadQueryArgInt64(name string) (int64, error)
 }
 
 type lambdaRequest struct {
@@ -173,7 +178,8 @@ func (request *lambdaRequest) GetClientID() elefant.ClientID {
 
 	strID, has := request.Request.RequestContext.Authorizer["principalId"]
 	if !has {
-		log.Panic("Request client ID for request without authorization.")
+		log.Panic("Request client ID for request without authorization " +
+			"(does not have client).")
 	}
 	id, err := elefant.ParseClientID(strID.(string))
 	if err != nil {
@@ -184,9 +190,35 @@ func (request *lambdaRequest) GetClientID() elefant.ClientID {
 	return *request.clientID
 }
 
-func (request *lambdaRequest) GetPathArgs() map[string]string {
-	return request.Request.PathParameters
+func (request *lambdaRequest) ReadAuthToken() elefant.AuthTokenID {
+	header := request.Request.Headers["Authorization"]
+	tokenStr := header[7:] // cuting "Bearer "
+	result, err := elefant.ParseAuthTokenID(tokenStr)
+	if err != nil {
+		log.Panicf("Request client ID for request without authorization "+
+			`(failed to parse auth-token "%s": "%v").`, header, err)
+	}
+	return result
 }
-func (request *lambdaRequest) GetQueryArgs() map[string]string {
-	return request.Request.QueryStringParameters
+
+func (request *lambdaRequest) ReadPathArgAccountID() (elefant.AccountID, error) {
+	arg := request.Request.PathParameters["accountId"]
+	result, err := elefant.ParseAccountID(arg)
+	if err != nil {
+		return result, fmt.Errorf(`failed to parse account ID "%s": "%v"`,
+			arg, err)
+	}
+	return result, nil
+}
+
+func (request *lambdaRequest) ReadQueryArgInt64(name string) (int64, error) {
+	str, has := request.Request.QueryStringParameters[name]
+	if !has {
+		return 0, errors.New("arg is not provided")
+	}
+	result, err := strconv.ParseInt(str, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return result, nil
 }

@@ -66,10 +66,11 @@ func (lambda *clientCreateLambda) Run(
 				request.Email))
 	}
 
-	log.Printf(`Created new client "%s".`, client.GetVerboseID())
+	log.Printf(`Created new client "%s" with email "%s".`,
+		client.GetID(), client.GetEmail())
 	for _, acc := range accounts {
-		log.Printf(`Created new client "%s" account "%s" (%s).`,
-			client.GetID(), acc.GetID(), acc.GetCurrency().GetISO())
+		log.Printf(`Created new client account "%s" (%s) for client "%s".`,
+			acc.GetID(), acc.GetCurrency().GetISO(), client.GetID())
 	}
 	return newHTTPResponseEmpty(http.StatusCreated)
 }
@@ -157,8 +158,8 @@ func (lambda *clientLoginLambda) Run(
 			`failed to commit "%s": "%v"`, client, err))
 	}
 
-	log.Printf(`Created new auth_token "%s" for client "%s".`,
-		token, client.GetVerboseID())
+	log.Printf(`Created new auth_token "%s" for client "%s" by email "%s".`,
+		token, client.GetID(), request.Email)
 	return newHTTPResponseWithHeaders(http.StatusCreated,
 		&struct{}{},
 		map[string]string{AuthTokenHeaderName: token.String()})
@@ -181,33 +182,23 @@ func (*clientLogoutLambda) CreateRequest() interface{} { return nil }
 func (lambda *clientLogoutLambda) Run(
 	request LambdaRequest) (*httpResponse, error) {
 
+	client := request.GetClientID()
+	token := request.ReadAuthToken()
+
 	db, err := lambda.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer db.Rollback()
 
-	tokenArg, hasToken := request.GetPathArgs()["authToken"]
-	if !hasToken {
-		if err = db.RevokeAllClientAuth(request.GetClientID()); err != nil {
-			return newHTTPResponseInternalServerError(fmt.Errorf(
-				`failed to revoke all auth-tokens: "%v"`, err))
-		}
-	} else {
-		token, err := elefant.ParseAuthTokenID(tokenArg)
-		if err != nil {
-			return newHTTPResponseBadParam("Auth-token has invalid format",
-				fmt.Errorf(`failed to parse auth_token "%s": "%v"`, tokenArg, err))
-		}
-		var has bool
-		has, err = db.RevokeClientAuth(token, request.GetClientID())
-		if err != nil {
-			return newHTTPResponseInternalServerError(fmt.Errorf(
-				`failed to revoke auth_token "%s": "%v"`, token, err))
-		}
-		if !has {
-			return newHTTPResponseEmpty(http.StatusNotFound)
-		}
+	var has bool
+	has, err = db.RevokeClientAuth(token, request.GetClientID())
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to revoke auth_token "%s": "%v"`, token, err))
+	}
+	if !has {
+		return newHTTPResponseEmpty(http.StatusNotFound)
 	}
 
 	if err = db.Commit(); err != nil {
@@ -215,11 +206,7 @@ func (lambda *clientLogoutLambda) Run(
 			`failed to commit: "%v"`, err))
 	}
 
-	if hasToken {
-		log.Printf(`Auth-token "%s" revoked.`, tokenArg)
-	} else {
-		log.Printf(`All auth_token revoked.`)
-	}
+	log.Printf(`Auth-token "%s" revoked for client "%s".`, token, client)
 	return newHTTPResponseEmpty(http.StatusOK)
 }
 

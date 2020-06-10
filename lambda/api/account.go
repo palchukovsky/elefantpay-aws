@@ -1,10 +1,8 @@
 package api
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/palchukovsky/elefantpay-aws/elefant"
 )
@@ -84,23 +82,16 @@ func (lambda *accountInfoLambda) Run(
 	}
 	defer db.Rollback()
 
-	id, err := elefant.ParseAccountID(request.GetPathArgs()["accountId"])
+	id, err := request.ReadPathArgAccountID()
 	if err != nil {
-		return newHTTPResponseBadParam("Account ID has invalid format",
-			fmt.Errorf(`failed to parse account ID "%s": "%v"`,
-				request.GetPathArgs()["accountId"], err))
+		return newHTTPResponseBadParam("Account ID has invalid format", err)
 	}
 
-	revisionStr, hasRevision := request.GetQueryArgs()["from"]
-	if !hasRevision {
-		return newHTTPResponseBadParam("From-revision is not provided", errors.New(
-			"from-revision is not provided"))
-	}
 	var revision int64
-	revision, err = strconv.ParseInt(revisionStr, 10, 32)
+	revision, err = request.ReadQueryArgInt64("from")
 	if err != nil {
-		return newHTTPResponseBadParam("From-revision has wrong format", fmt.Errorf(
-			`failed to parse revision "%s": "%v"`, revisionStr, err))
+		return newHTTPResponseBadParam("From-revision is not provided", fmt.Errorf(
+			`failed to get from-revision: "%v"`, err))
 	}
 
 	var account elefant.Account

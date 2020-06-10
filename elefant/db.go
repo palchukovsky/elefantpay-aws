@@ -26,7 +26,6 @@ type DBTrans interface {
 
 	CreateAuth(client Client, request interface{}) (AuthTokenID, error)
 	RecreateAuth(AuthTokenID) (*AuthTokenID, *ClientID, error)
-	RevokeAllClientAuth(ClientID) error
 	RevokeClientAuth(AuthTokenID, ClientID) (bool, error)
 
 	CreateAccount(Currency, ClientID) (Account, error)
@@ -182,11 +181,6 @@ func (t *dbTrans) RecreateAuth(
 		return nil, nil, err
 	}
 	return &newToken, &client, nil
-}
-
-func (t *dbTrans) RevokeAllClientAuth(client ClientID) error {
-	_, err := t.tx.Exec("DELETE FROM auth_token WHERE client = $1", client)
-	return err
 }
 
 func (t *dbTrans) RevokeClientAuth(
