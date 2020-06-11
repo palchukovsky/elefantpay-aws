@@ -7,6 +7,7 @@ IMAGES_REPO =
 MAINTAINER = local
 COMMIT = local
 BUILD = local
+DOMAIN = elefantpay.com
 AWS_PRODUCT = elefantpay
 AWS_REGION = eu-central-1
 AWS_ACCOUNT_ID = 102160531127
@@ -19,7 +20,7 @@ GOLANGCI_VER = 1.27.0
 
 .PHONY: \
 	help lint mock \
-	install deploy-lambda-api \
+	install deploy \
 	build build-builder build-builder-golang build-lambda-api \
 	install-deps install-mock install-mock-deps
 .DEFAULT_GOAL := build
@@ -32,6 +33,7 @@ COMMA := ,
 LAMBDA_PREFIX := ${AWS_PRODUCT}_${VER}_
 LAMBDA_LFFLAGS := -X 'elefant.AWSAccountID=${AWS_ACCOUNT_ID}'
 API_LAMBDA_PREFIX := API_
+VER_DOMAIN = -dev.${DOMAIN}
 
 IMAGE_TAG_BUILDER_GOLANG = ${IMAGES_REPO}${PRODUCT}.golang:${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG}
 IMAGE_TAG_BUILDER_BUILDER = ${IMAGES_REPO}${PRODUCT}.builder:${IMAGE_TAG}
@@ -61,7 +63,7 @@ help: ## Show this help.
 install:  ## Deploy current sources. Uses .env file wich has to have vars AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
 	@$(call echo_start)
 	docker run --env-file .env --rm ${IMAGE_TAG_BUILDER_BUILDER} /bin/sh -c \
-		"cd ${WORKDIR} && make deploy-lambda-api"
+		"cd ${WORKDIR} && make deploy"
 	@$(call echo_success)
 
 
@@ -183,6 +185,12 @@ define for-each-api-lambda
 	$(call ${1},AccountBalanceUpdate)
 	$(call ${1},AccountHistory)
 endef
+define upload-assets
+	aws s3 cp assets/html/credential/* s3://credential${VER_DOMAIN}/
+	aws s3api put-bucket-tagging \
+		--bucket credential${VER_DOMAIN} \
+		--tagging 'TagSet=[{Key=product,Value=${AWS_PRODUCT}},{Key=project,Value=backend},{Key=package,Value=website},{Key=version,Value=${VER}},{Key=maintainer,Value=${MAINTAINER}},{Key=commit,Value=${COMMIT}},{Key=build,Value=${BUILD}}]'
+endef
 
 build-lambda-api:
 	@$(call echo_start)
@@ -191,8 +199,10 @@ build-lambda-api:
 	$(call for-each-api-lambda,build-api-lambda)
 	@$(call echo_success)
 
-deploy-lambda-api:
+deploy:
 	@$(call echo_start)
+	
+	$(call upload-assets)
 
 	$(call deploy-lambda,test,Test,test)
 
