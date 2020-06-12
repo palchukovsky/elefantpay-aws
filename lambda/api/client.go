@@ -28,6 +28,10 @@ type clientRequest struct {
 	Password string `json:"password"`
 }
 
+type clientConfirmRequest struct {
+	Confirmation string `json:"confirmation"`
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 type clientCreateLambda struct{ clientLambda }
@@ -72,7 +76,8 @@ func (lambda *clientCreateLambda) Run(
 		log.Printf(`Created new client account "%s" (%s) for client "%s".`,
 			acc.GetID(), acc.GetCurrency().GetISO(), client.GetID())
 	}
-	return newHTTPResponseEmpty(http.StatusCreated)
+	return newHTTPResponse(http.StatusCreated,
+		&clientConfirmRequest{Confirmation: client.GetID().String()})
 }
 
 func (*clientCreateLambda) CreateRequest() interface{} {
@@ -207,6 +212,63 @@ func (lambda *clientLogoutLambda) Run(
 	}
 
 	log.Printf(`Auth-token "%s" revoked for client "%s".`, token, client)
+	return newHTTPResponseEmpty(http.StatusOK)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+type clientConfirmation struct {
+	ID    string `json:"id"`
+	Token string `json:"token"`
+}
+
+type clientConfirmLambda struct{ clientLambda }
+
+func (*lambdaFactory) NewClientConfirmLambda() lambdaImpl {
+	return &clientConfirmLambda{clientLambda: newClientLambda()}
+}
+
+func (*clientConfirmLambda) CreateRequest() interface{} {
+	return &clientConfirmation{}
+}
+
+func (lambda *clientConfirmLambda) Run(
+	lambdaRequest LambdaRequest) (*httpResponse, error) {
+	request := lambdaRequest.GetRequest().(*clientConfirmation)
+
+	client, err := elefant.ParseClientID(request.ID)
+	if err != nil {
+		return newHTTPResponseBadParam("confirmation ID is invalid",
+			fmt.Errorf(`failed to parse client ID "%s": "%v"`, client, err))
+	}
+
+	if request.Token != "1234" {
+		return newHTTPResponseEmpty(http.StatusNotFound)
+	}
+
+	var db elefant.DBTrans
+	db, err = lambda.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Rollback()
+
+	var confirmed bool
+	confirmed, err = db.ConfirmClient(client)
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to confirm client "%s": "%v"`, client, err))
+	}
+	if !confirmed {
+		return newHTTPResponseEmpty(http.StatusNotFound)
+	}
+
+	if err = db.Commit(); err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to commit: "%v"`, err))
+	}
+
+	log.Printf(`Confirmed client "%s" by token "%s".`, client, request.Token)
 	return newHTTPResponseEmpty(http.StatusOK)
 }
 

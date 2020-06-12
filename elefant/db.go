@@ -22,6 +22,7 @@ type DBTrans interface {
 	Rollback()
 
 	CreateClient(email, password string, request interface{}) (Client, error)
+	ConfirmClient(ClientID) (bool, error)
 	FindClientByCreds(email, password string) (Client, error)
 
 	CreateAuth(client Client, request interface{}) (AuthTokenID, error)
@@ -111,9 +112,23 @@ func (t *dbTrans) isDuplicateErr(err error) bool {
 	return ok && pgErr.Code == "23505"
 }
 
+func (t *dbTrans) ConfirmClient(id ClientID) (bool, error) {
+	query := `UPDATE client SET confirmed = true id $1`
+	result, err := t.tx.Exec(query, id)
+	if err != nil {
+		return false, err
+	}
+	var rowsAffected int64
+	rowsAffected, err = result.RowsAffected()
+	if err != nil {
+		return true, err
+	}
+	return rowsAffected > 0, nil
+}
+
 func (t *dbTrans) FindClientByCreds(email, password string) (Client, error) {
 	query := `SELECT id, (password = crypt($2, password)) AS password_match
-		FROM client WHERE email = $1`
+		FROM client WHERE confirmed = true AND email = $1`
 	var id ClientID
 	var passwordMatch bool
 	switch err := t.tx.QueryRow(query, email, password).
@@ -135,8 +150,8 @@ func (t *dbTrans) CreateClient(
 	if err != nil {
 		return nil, err
 	}
-	query := `INSERT INTO client(id, email, password, time, request)
-		VALUES($1, $2, crypt($3, gen_salt('bf')), $4, $5)`
+	query := `INSERT INTO client(id, email, password, time, request, confirmed)
+		VALUES($1, $2, crypt($3, gen_salt('bf')), $4, $5, false)`
 	id := newClientID()
 	_, err = t.tx.Exec(query, id, email, password, time.Now().UTC(), requestStr)
 	if err != nil {

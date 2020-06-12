@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"reflect"
 	"strconv"
 
@@ -149,7 +150,7 @@ func (request *lambdaRequest) Execute(impl lambdaImpl) {
 
 	request.implRequest = impl.CreateRequest()
 	switch request.Request.RequestContext.HTTPMethod {
-	case "POST", "PUT":
+	case http.MethodPost, http.MethodPut:
 		request.Response, request.ResponseErr = request.parseBody(
 			request.implRequest)
 		if request.Response != nil || request.ResponseErr != nil {

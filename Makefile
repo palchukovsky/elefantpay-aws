@@ -180,15 +180,16 @@ define for-each-api-lambda
 	$(call ${1},ClientCreate)
 	$(call ${1},ClientLogin)
 	$(call ${1},ClientLogout)
+	$(call ${1},ClientConfirm)
 	$(call ${1},AccountList)
 	$(call ${1},AccountInfo)
 	$(call ${1},AccountBalanceUpdate)
 	$(call ${1},AccountHistory)
 endef
 define upload-assets
-	aws s3 cp assets/html/credential/* s3://credential${VER_DOMAIN}/
+	aws s3 cp assets/html/credentials/* s3://credentials${VER_DOMAIN}/
 	aws s3api put-bucket-tagging \
-		--bucket credential${VER_DOMAIN} \
+		--bucket credentials${VER_DOMAIN} \
 		--tagging 'TagSet=[{Key=product,Value=${AWS_PRODUCT}},{Key=project,Value=backend},{Key=package,Value=website},{Key=version,Value=${VER}},{Key=maintainer,Value=${MAINTAINER}},{Key=commit,Value=${COMMIT}},{Key=build,Value=${BUILD}}]'
 endef
 
