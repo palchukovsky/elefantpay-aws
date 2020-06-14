@@ -277,7 +277,7 @@ func (lambda *clientConfirmLambda) Run(
 	}
 
 	log.Printf(`Confirmed client "%s" by token "%s".`, client, request.Token)
-	return newHTTPResponseEmpty(http.StatusOK)
+	return newHTTPResponseEmpty(http.StatusNoContent)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
