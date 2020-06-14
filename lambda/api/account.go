@@ -84,13 +84,13 @@ func (lambda *accountInfoLambda) Run(
 
 	id, err := request.ReadPathArgAccountID()
 	if err != nil {
-		return newHTTPResponseBadParam("Account ID has invalid format", err)
+		return newHTTPResponseBadParam("account ID has invalid format", err)
 	}
 
 	var revision int64
 	revision, err = request.ReadQueryArgInt64("from")
 	if err != nil {
-		return newHTTPResponseBadParam("From-revision is not provided", fmt.Errorf(
+		return newHTTPResponseBadParam("from-revision is not provided", fmt.Errorf(
 			`failed to get from-revision: "%v"`, err))
 	}
 

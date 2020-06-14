@@ -110,7 +110,7 @@ func (request *lambdaRequest) dumpResponse() {
 func (request *lambdaRequest) parseBody(
 	result interface{}) (*httpResponse, error) {
 	if err := json.Unmarshal([]byte(request.Request.Body), result); err != nil {
-		return newHTTPResponseBadParam("Request is not valid JSON object",
+		return newHTTPResponseBadParam("request is not valid JSON object",
 			fmt.Errorf(`failed to parse request "%s": "%v"`,
 				request.Request.Body, err))
 	}

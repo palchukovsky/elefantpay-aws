@@ -45,12 +45,12 @@ func (lambda *clientCreateLambda) Run(
 	request := lambdaRequest.GetRequest().(*clientRequest)
 
 	if err := checkmail.ValidateFormat(request.Email); err != nil {
-		return newHTTPResponseBadParam("Email has invalid format",
+		return newHTTPResponseBadParam("email has invalid format",
 			fmt.Errorf(`failed to validate email: "%v"`, request.Email))
 	}
 	if len(request.Password) < 8 {
 		return newHTTPResponseBadParam(
-			"Password could not be shorter than 8 symbols",
+			"password could not be shorter than 8 symbols",
 			fmt.Errorf(`failed to validate password: too small (%d symbols)`,
 				len(request.Password)))
 	}
