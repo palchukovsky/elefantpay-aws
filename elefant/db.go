@@ -23,7 +23,10 @@ type DBTrans interface {
 
 	CreateClient(email, password string, request interface{}) (Client, error)
 	ConfirmClient(ClientID) (bool, error)
-	FindClientByCreds(email, password string) (Client, error)
+	// FindClientByCreds tries to find client by credentials and returns it, and
+	// returns flag is it confirmed or not. If there is no error but client is
+	// not fined - return nil for client.
+	FindClientByCreds(email, password string) (Client, bool, error)
 
 	CreateAuth(client Client, request interface{}) (AuthTokenID, error)
 	RecreateAuth(AuthTokenID) (*AuthTokenID, *ClientID, error)
@@ -126,22 +129,25 @@ func (t *dbTrans) ConfirmClient(id ClientID) (bool, error) {
 	return rowsAffected > 0, nil
 }
 
-func (t *dbTrans) FindClientByCreds(email, password string) (Client, error) {
-	query := `SELECT id, (password = crypt($2, password)) AS password_match
-		FROM client WHERE confirmed = true AND email = $1`
+func (t *dbTrans) FindClientByCreds(
+	email, password string) (Client, bool, error) {
+	query := `SELECT
+			id, (password = crypt($2, password)) AS password_match, confirmed
+		FROM client WHERE email = $1`
 	var id ClientID
 	var passwordMatch bool
+	var isConfirmed bool
 	switch err := t.tx.QueryRow(query, email, password).
-		Scan(&id, &passwordMatch); {
+		Scan(&id, &passwordMatch, &isConfirmed); {
 	case err == sql.ErrNoRows:
-		return nil, nil
+		return nil, false, nil
 	case err != nil:
-		return nil, err
+		return nil, false, err
 	}
 	if !passwordMatch {
-		return nil, nil
+		return nil, false, nil
 	}
-	return newClient(id, email), nil
+	return newClient(id, email), isConfirmed, nil
 }
 
 func (t *dbTrans) CreateClient(

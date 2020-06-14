@@ -32,6 +32,10 @@ type clientConfirmRequest struct {
 	Confirmation string `json:"confirmation"`
 }
 
+func newClientConfirmRequest(client elefant.Client) *clientConfirmRequest {
+	return &clientConfirmRequest{Confirmation: client.GetID().String()}
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 type clientCreateLambda struct{ clientLambda }
@@ -76,8 +80,7 @@ func (lambda *clientCreateLambda) Run(
 		log.Printf(`Created new client account "%s" (%s) for client "%s".`,
 			acc.GetID(), acc.GetCurrency().GetISO(), client.GetID())
 	}
-	return newHTTPResponse(http.StatusCreated,
-		&clientConfirmRequest{Confirmation: client.GetID().String()})
+	return newHTTPResponse(http.StatusCreated, newClientConfirmRequest(client))
 }
 
 func (*clientCreateLambda) CreateRequest() interface{} {
@@ -136,7 +139,8 @@ func (lambda *clientLoginLambda) Run(
 	}
 	defer db.Rollback()
 
-	client, err := db.FindClientByCreds(request.Email, request.Password)
+	client, isConfirmed, err := db.FindClientByCreds(
+		request.Email, request.Password)
 	if err != nil {
 		return newHTTPResponseInternalServerError(fmt.Errorf(
 			`failed to find client record by email "%s" and password: "%s"`,
@@ -144,6 +148,10 @@ func (lambda *clientLoginLambda) Run(
 	}
 	if client == nil {
 		return newHTTPResponseEmpty(http.StatusNotFound)
+	}
+	if !isConfirmed {
+		return newHTTPResponse(http.StatusUnprocessableEntity,
+			newClientConfirmRequest(client))
 	}
 
 	httpRequest := *lambdaRequest.GetHTTPRequest()
