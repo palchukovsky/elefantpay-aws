@@ -36,6 +36,35 @@ func newClientConfirmRequest(client elefant.Client) *clientConfirmRequest {
 	return &clientConfirmRequest{Confirmation: client.GetID().String()}
 }
 
+func createAuth(
+	client elefant.Client,
+	db elefant.DBTrans,
+	lambdaRequest LambdaRequest,
+	successStatusCode int) (*httpResponse, error) {
+
+	httpRequest := *lambdaRequest.GetHTTPRequest()
+	httpRequest.Body = "" // to remove secure info
+
+	token, err := db.CreateAuth(client, &httpRequest)
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to create client auth_token for client "%s": "%v"`,
+			client.GetID(), err))
+	}
+
+	err = db.Commit()
+	if err != nil {
+		return newHTTPResponseInternalServerError(fmt.Errorf(
+			`failed to commit "%s": "%v"`, client, err))
+	}
+
+	log.Printf(`Created new auth_token "%s" for client "%s".`,
+		token, client.GetID())
+	return newHTTPResponseWithHeaders(successStatusCode,
+		&struct{}{},
+		map[string]string{AuthTokenHeaderName: token.String()})
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 type clientCreateLambda struct{ clientLambda }
@@ -62,7 +91,7 @@ func (lambda *clientCreateLambda) Run(
 	httpRequest := *lambdaRequest.GetHTTPRequest()
 	httpRequest.Body = "" // to remove secure info.
 
-	client, accounts, err := lambda.CreateClient(request, &httpRequest)
+	client, accounts, err := lambda.createClient(request, &httpRequest)
 	if err != nil {
 		return newHTTPResponseInternalServerError(
 			fmt.Errorf(`failed to store new client record for request "%v": "%s"`,
@@ -87,7 +116,7 @@ func (*clientCreateLambda) CreateRequest() interface{} {
 	return &clientRequest{}
 }
 
-func (lambda *clientCreateLambda) CreateClient(
+func (lambda *clientCreateLambda) createClient(
 	request *clientRequest,
 	httpRequest interface{}) (elefant.Client, []elefant.Account, error) {
 
@@ -154,28 +183,7 @@ func (lambda *clientLoginLambda) Run(
 			newClientConfirmRequest(client))
 	}
 
-	httpRequest := *lambdaRequest.GetHTTPRequest()
-	httpRequest.Body = "" // to remove secure info
-
-	var token elefant.AuthTokenID
-	token, err = db.CreateAuth(client, &httpRequest)
-	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to create client auth_token for client "%s": "%v"`,
-			client.GetID(), err))
-	}
-
-	err = db.Commit()
-	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to commit "%s": "%v"`, client, err))
-	}
-
-	log.Printf(`Created new auth_token "%s" for client "%s" by email "%s".`,
-		token, client.GetID(), request.Email)
-	return newHTTPResponseWithHeaders(http.StatusCreated,
-		&struct{}{},
-		map[string]string{AuthTokenHeaderName: token.String()})
+	return createAuth(client, db, lambdaRequest, http.StatusCreated)
 }
 
 func (lambda *clientLoginLambda) CreateRequest() interface{} {
@@ -244,10 +252,10 @@ func (lambda *clientConfirmLambda) Run(
 	lambdaRequest LambdaRequest) (*httpResponse, error) {
 	request := lambdaRequest.GetRequest().(*clientConfirmation)
 
-	client, err := elefant.ParseClientID(request.ID)
+	clientID, err := elefant.ParseClientID(request.ID)
 	if err != nil {
 		return newHTTPResponseBadParam("confirmation ID is invalid",
-			fmt.Errorf(`failed to parse client ID "%s": "%v"`, client, err))
+			fmt.Errorf(`failed to parse client ID "%s": "%v"`, clientID, err))
 	}
 
 	if request.Token != "1234" {
@@ -261,23 +269,23 @@ func (lambda *clientConfirmLambda) Run(
 	}
 	defer db.Rollback()
 
-	var confirmed bool
-	confirmed, err = db.ConfirmClient(client)
+	var client elefant.Client
+	client, err = db.ConfirmClient(clientID)
 	if err != nil {
 		return newHTTPResponseInternalServerError(fmt.Errorf(
 			`failed to confirm client "%s": "%v"`, client, err))
 	}
-	if !confirmed {
+	if client == nil {
 		return newHTTPResponseEmpty(http.StatusNotFound)
 	}
 
-	if err = db.Commit(); err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to commit: "%v"`, err))
+	response, err := createAuth(client, db, lambdaRequest, http.StatusNoContent)
+	if err != nil {
+		return response, err
 	}
 
 	log.Printf(`Confirmed client "%s" by token "%s".`, client, request.Token)
-	return newHTTPResponseEmpty(http.StatusNoContent)
+	return response, nil
 }
 
 ////////////////////////////////////////////////////////////////////////////////

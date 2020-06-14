@@ -22,7 +22,7 @@ type DBTrans interface {
 	Rollback()
 
 	CreateClient(email, password string, request interface{}) (Client, error)
-	ConfirmClient(ClientID) (bool, error)
+	ConfirmClient(ClientID) (Client, error)
 	// FindClientByCreds tries to find client by credentials and returns it, and
 	// returns flag is it confirmed or not. If there is no error but client is
 	// not fined - return nil for client.
@@ -115,18 +115,17 @@ func (t *dbTrans) isDuplicateErr(err error) bool {
 	return ok && pgErr.Code == "23505"
 }
 
-func (t *dbTrans) ConfirmClient(id ClientID) (bool, error) {
-	query := `UPDATE client SET confirmed = true WHERE id = $1`
-	result, err := t.tx.Exec(query, id)
-	if err != nil {
-		return false, err
+func (t *dbTrans) ConfirmClient(id ClientID) (Client, error) {
+	query := `UPDATE client SET confirmed = true WHERE id = $1
+	RETURNING email`
+	var email string
+	switch err := t.tx.QueryRow(query, id).Scan(&email); {
+	case err == sql.ErrNoRows:
+		return nil, nil
+	case err != nil:
+		return nil, err
 	}
-	var rowsAffected int64
-	rowsAffected, err = result.RowsAffected()
-	if err != nil {
-		return true, err
-	}
-	return rowsAffected > 0, nil
+	return newClient(id, email), nil
 }
 
 func (t *dbTrans) FindClientByCreds(
