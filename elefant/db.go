@@ -113,7 +113,7 @@ func (t *dbTrans) isDuplicateErr(err error) bool {
 }
 
 func (t *dbTrans) ConfirmClient(id ClientID) (bool, error) {
-	query := `UPDATE client SET confirmed = true id $1`
+	query := `UPDATE client SET confirmed = true WHERE id = $1`
 	result, err := t.tx.Exec(query, id)
 	if err != nil {
 		return false, err
