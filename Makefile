@@ -1,22 +1,25 @@
 VER := dev
 TAG := ${VER}
-ORGANIZATION = palchukovsky
-PRODUCT = elefantpay-aws
-CODE_REPO = github.org/${ORGANIZATION}/${PRODUCT}
-IMAGES_REPO =
-MAINTAINER = local
-COMMIT = local
-BUILD = local
-DOMAIN = elefantpay.com
-AWS_PRODUCT = elefantpay
-AWS_REGION = eu-central-1
-AWS_ACCOUNT_ID = 102160531127
-AWS_GATEWAY_ID = u46yfhcpq3
+ORGANIZATION := palchukovsky
+PRODUCT := elefantpay-aws
+CODE_REPO := github.com/${ORGANIZATION}/${PRODUCT}
+IMAGES_REPO :=
+MAINTAINER := local
+COMMIT := local
+BUILD := local
+DOMAIN := elefantpay.com
+EMAIL := info@${DOMAIN}
+NAME := ElefantPay
+AWS_PRODUCT := elefantpay
+AWS_REGION := eu-central-1
+AWS_ACCOUNT_ID := 102160531127
+AWS_GATEWAY_ID := u46yfhcpq3
+include .env
 
-GO_VER = 1.14
-NODE_OS_NAME = alpine
-NODE_OS_TAG = 3.11
-GOLANGCI_VER = 1.27.0
+GO_VER := 1.14
+NODE_OS_NAME := alpine
+NODE_OS_TAG := 3.11
+GOLANGCI_VER := 1.27.0
 
 .PHONY: \
 	help lint mock \
@@ -25,18 +28,21 @@ GOLANGCI_VER = 1.27.0
 	install-deps install-mock install-mock-deps
 .DEFAULT_GOAL := build
 
-WORKDIR = /go/src/${CODE_REPO}
+WORKDIR := /go/src/${CODE_REPO}
 THIS_FILE := $(lastword ${MAKEFILE_LIST})
-GO_GET_CMD = go get -v
+GO_GET_CMD := go get -v
 IMAGE_TAG := $(subst /,_,${TAG})
 COMMA := ,
 LAMBDA_PREFIX := ${AWS_PRODUCT}_${VER}_
-LAMBDA_LFFLAGS := -X 'elefant.AWSAccountID=${AWS_ACCOUNT_ID}'
+LAMBDA_LFFLAGS := \
+	-X '${CODE_REPO}/elefant.EmailFromName=${NAME}'	\
+	-X '${CODE_REPO}/elefant.EmailFromAddress=${EMAIL}'	\
+	-X '${CODE_REPO}/elefant.SendGridAPIKey=${SENDGRID_API_KEY}'
 API_LAMBDA_PREFIX := API_
-VER_DOMAIN = -dev.${DOMAIN}
+VER_DOMAIN := -dev.${DOMAIN}
 
-IMAGE_TAG_BUILDER_GOLANG = ${IMAGES_REPO}${PRODUCT}.golang:${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG}
-IMAGE_TAG_BUILDER_BUILDER = ${IMAGES_REPO}${PRODUCT}.builder:${IMAGE_TAG}
+IMAGE_TAG_BUILDER_GOLANG := ${IMAGES_REPO}${PRODUCT}.golang:${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG}
+IMAGE_TAG_BUILDER_BUILDER := ${IMAGES_REPO}${PRODUCT}.builder:${IMAGE_TAG}
 
 
 define echo_start
@@ -60,7 +66,7 @@ help: ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' ${MAKEFILE_LIST} | sort | awk 'BEGIN {FS = ":.*?## "};	{printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 
-install:  ## Deploy current sources. Uses .env file wich has to have vars AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+install:  ## Deploy current sources. Uses .env file wich has to have vars.
 	@$(call echo_start)
 	docker run --env-file .env --rm ${IMAGE_TAG_BUILDER_BUILDER} /bin/sh -c \
 		"cd ${WORKDIR} && make deploy"

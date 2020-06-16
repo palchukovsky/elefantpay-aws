@@ -7,6 +7,8 @@ import (
 
 	"github.com/badoux/checkmail"
 	"github.com/palchukovsky/elefantpay-aws/elefant"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -65,6 +67,50 @@ func createAuth(
 		map[string]string{AuthTokenHeaderName: token.String()})
 }
 
+func send2aCode(client elefant.Client) error {
+	m := mail.NewV3Mail()
+	m.SetFrom(mail.NewEmail(elefant.EmailFromName, elefant.EmailFromAddress))
+	m.SetTemplateID("d-fba4293d0de84a719e3c5d604663ed39")
+
+	p := mail.NewPersonalization()
+	tos := []*mail.Email{
+		mail.NewEmail(client.GetName(), client.GetEmail()),
+	}
+	p.AddTos(tos...)
+
+	p.SetDynamicTemplateData("name", client.GetName())
+
+	pin := "1234"
+	p.SetDynamicTemplateData("confirmUrl",
+		fmt.Sprintf("https://elefantpay.com/?id=%s&token=%s", client.GetID(), pin))
+	p.SetDynamicTemplateData("pin", pin)
+
+	m.AddPersonalizations(p)
+
+	request := sendgrid.GetRequest(
+		elefant.SendGridAPIKey, "/v3/mail/send", "https://api.sendgrid.com")
+	request.Method = "POST"
+	request.Body = mail.GetRequestBody(m)
+	response, err := sendgrid.API(request)
+	if err != nil {
+		return fmt.Errorf(
+			`failed to send 2FA confirmation code for user "%s" on email "%s": "%v"`,
+			client.GetID(), client.GetEmail(), err)
+	}
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf(
+			`failed to send 2FA confirmation code for user "%s" on email "%s": `+
+				` statis code "%d", response: "%s", headers: "%s"`,
+			client.GetID(), client.GetEmail(),
+			response.StatusCode, response.Body, response.Headers)
+	}
+
+	fmt.Printf(`Sent 2FA confirmation code "%s" for user "%s" on email "%s".`,
+		pin, client.GetID(), client.GetEmail())
+
+	return nil
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 type clientCreateLambda struct{ clientLambda }
@@ -109,6 +155,11 @@ func (lambda *clientCreateLambda) Run(
 		log.Printf(`Created new client account "%s" (%s) for client "%s".`,
 			acc.GetID(), acc.GetCurrency().GetISO(), client.GetID())
 	}
+
+	if err := send2aCode(client); err != nil {
+		fmt.Printf("%s\n", err)
+	}
+
 	return newHTTPResponse(http.StatusCreated, newClientConfirmRequest(client))
 }
 

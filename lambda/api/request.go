@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"net/http"
+	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 )
@@ -61,10 +61,10 @@ func newHTTPResponseBadParam(message string, err error) (*httpResponse, error) {
 	log.Printf(`Response with error code %d: "%v" (%s).`,
 		statusCode, err, message)
 	response := &errorResponse{Message: message}
-	if (len(response.Message) > 0) {
+	if len(response.Message) > 0 {
 		response.Message = strings.ToUpper(string(response.Message[0])) +
-		 response.Message[1:]
-	} 
+			response.Message[1:]
+	}
 	return newHTTPResponse(statusCode, response)
 }
 
