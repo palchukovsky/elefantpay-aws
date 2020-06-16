@@ -18,6 +18,7 @@ func ParseClientID(source string) (ClientID, error) {
 type Client interface {
 	GetID() ClientID
 	GetEmail() string
+	GetName() string
 }
 
 func newClient(id ClientID, email string) *client {
@@ -27,7 +28,9 @@ func newClient(id ClientID, email string) *client {
 type client struct {
 	id    ClientID
 	email string
+	name  string
 }
 
 func (client *client) GetID() ClientID  { return client.id }
 func (client *client) GetEmail() string { return client.email }
+func (client *client) GetName() string  { return client.name }
