@@ -22,10 +22,10 @@ type Lambda interface {
 func NewLambda(name string) Lambda {
 	impl, err := newLambdaFactory().NewLambdaImpl(name)
 	if err != nil {
-		log.Panicf(`Failed to create lambda: "%v".`, err)
+		elefant.Log.Panicf(`Failed to create lambda: "%v".`, err)
 	}
 	if err := impl.Init(); err != nil {
-		log.Panicf(`Failed to init lambda: "%v".`, err)
+		elefant.Log.Panicf(`Failed to init lambda: "%v".`, err)
 	}
 	return &lambda{impl: impl}
 }
@@ -85,26 +85,28 @@ type lambdaRequest struct {
 func (request *lambdaRequest) dumpRequest() {
 	dump, err := json.Marshal(request.Request)
 	if err != nil {
-		log.Printf(`Failed to dump request "%v": "%v".`, *request.Request, err)
+		elefant.Log.Error(`Failed to dump request "%v": "%v".`,
+			*request.Request, err)
 		return
 	}
-	log.Println(string(dump))
+	elefant.Log.Debug(string(dump))
 }
 
 func (request *lambdaRequest) dumpResponse() {
 	if request.ResponseErr != nil {
-		log.Printf(`Request returned error: "%v".`, request.ResponseErr)
+		elefant.Log.Error(`Request returned error: "%v".`, request.ResponseErr)
 	}
 	if request.Response == nil {
-		log.Println(`No response.`)
+		elefant.Log.Info(`No response.`)
 		return
 	}
 	dump, err := json.Marshal(request.Response)
 	if err != nil {
-		log.Printf(`Failed to dump response "%v": "%v".`, *request.Response, err)
+		elefant.Log.Error(`Failed to dump response "%v": "%v".`,
+			*request.Response, err)
 		return
 	}
-	log.Println(string(dump))
+	elefant.Log.Debug(string(dump))
 }
 
 func (request *lambdaRequest) parseBody(
@@ -136,7 +138,7 @@ func (request *lambdaRequest) updateResponseHeaders() {
 
 func (request *lambdaRequest) Execute(impl lambdaImpl) {
 
-	isDev := isDev(request.Request)
+	isDev := elefant.IsDev()
 	if isDev {
 		request.dumpRequest()
 	}
@@ -184,7 +186,7 @@ func (request *lambdaRequest) GetClientID() elefant.ClientID {
 	}
 	id, err := elefant.ParseClientID(strID.(string))
 	if err != nil {
-		log.Panicf(`Failed to parse client ID: "%v".`, err)
+		elefant.Log.Panicf(`Failed to parse client ID: "%v".`, err)
 	}
 	request.clientID = &id
 
@@ -196,7 +198,7 @@ func (request *lambdaRequest) ReadAuthToken() elefant.AuthTokenID {
 	tokenStr := header[7:] // cuting "Bearer "
 	result, err := elefant.ParseAuthTokenID(tokenStr)
 	if err != nil {
-		log.Panicf("Request client ID for request without authorization "+
+		elefant.Log.Panicf("Request client ID for request without authorization "+
 			`(failed to parse auth-token "%s": "%v").`, header, err)
 	}
 	return result

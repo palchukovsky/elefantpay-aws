@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/badoux/checkmail"
@@ -60,14 +59,14 @@ func createAuth(
 			`failed to commit "%s": "%v"`, client, err))
 	}
 
-	log.Printf(`Created new auth_token "%s" for client "%s".`,
+	elefant.Log.Info(`Created new auth_token "%s" for client "%s".`,
 		token, client.GetID())
 	return newHTTPResponseWithHeaders(successStatusCode,
 		&struct{}{},
 		map[string]string{AuthTokenHeaderName: token.String()})
 }
 
-func send2aCode(client elefant.Client) error {
+func send2faCode(client elefant.Client) error {
 	m := mail.NewV3Mail()
 	m.SetFrom(mail.NewEmail(elefant.EmailFromName, elefant.EmailFromAddress))
 	m.SetTemplateID("d-fba4293d0de84a719e3c5d604663ed39")
@@ -105,7 +104,8 @@ func send2aCode(client elefant.Client) error {
 			response.StatusCode, response.Body, response.Headers)
 	}
 
-	fmt.Printf(`Sent 2FA confirmation code "%s" for user "%s" on email "%s".`,
+	elefant.Log.Info(
+		`Sent 2FA confirmation code "%s" for user "%s" on email "%s".`,
 		pin, client.GetID(), client.GetEmail())
 
 	return nil
@@ -149,15 +149,15 @@ func (lambda *clientCreateLambda) Run(
 				request.Email))
 	}
 
-	log.Printf(`Created new client "%s" with email "%s".`,
+	elefant.Log.Info(`Created new client "%s" with email "%s".`,
 		client.GetID(), client.GetEmail())
 	for _, acc := range accounts {
-		log.Printf(`Created new client account "%s" (%s) for client "%s".`,
+		elefant.Log.Info(`Created new client account "%s" (%s) for client "%s".`,
 			acc.GetID(), acc.GetCurrency().GetISO(), client.GetID())
 	}
 
-	if err := send2aCode(client); err != nil {
-		fmt.Printf("%s\n", err)
+	if err := send2faCode(client); err != nil {
+		elefant.Log.Err(err)
 	}
 
 	return newHTTPResponse(http.StatusCreated, newClientConfirmRequest(client))
@@ -278,7 +278,7 @@ func (lambda *clientLogoutLambda) Run(
 			`failed to commit: "%v"`, err))
 	}
 
-	log.Printf(`Auth-token "%s" revoked for client "%s".`, token, client)
+	elefant.Log.Info(`Auth-token "%s" revoked for client "%s".`, token, client)
 	return newHTTPResponseEmpty(http.StatusOK)
 }
 
@@ -335,7 +335,8 @@ func (lambda *clientConfirmLambda) Run(
 		return response, err
 	}
 
-	log.Printf(`Confirmed client "%s" by token "%s".`, client, request.Token)
+	elefant.Log.Info(`Confirmed client "%s" by token "%s".`,
+		client, request.Token)
 	return response, nil
 }
 

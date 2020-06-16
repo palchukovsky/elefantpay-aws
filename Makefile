@@ -14,7 +14,7 @@ AWS_PRODUCT := elefantpay
 AWS_REGION := eu-central-1
 AWS_ACCOUNT_ID := 102160531127
 AWS_GATEWAY_ID := u46yfhcpq3
-include .env
+-include .env # includes only for product building, not for builders building
 
 GO_VER := 1.14
 NODE_OS_NAME := alpine
@@ -28,18 +28,26 @@ GOLANGCI_VER := 1.27.0
 	install-deps install-mock install-mock-deps
 .DEFAULT_GOAL := build
 
+ifeq (${VER}, dev)
+ 	LOG_SERVICE_DSN := ${SENTRY_DEV}
+else
+	LOG_SERVICE_DSN := ${SENTRY_PROD}
+endif
+
 WORKDIR := /go/src/${CODE_REPO}
-THIS_FILE := $(lastword ${MAKEFILE_LIST})
 GO_GET_CMD := go get -v
 IMAGE_TAG := $(subst /,_,${TAG})
 COMMA := ,
-LAMBDA_PREFIX := ${AWS_PRODUCT}_${VER}_
-LAMBDA_LFFLAGS := \
-	-X '${CODE_REPO}/elefant.EmailFromName=${NAME}'	\
-	-X '${CODE_REPO}/elefant.EmailFromAddress=${EMAIL}'	\
-	-X '${CODE_REPO}/elefant.SendGridAPIKey=${SENDGRID_API_KEY}'
 API_LAMBDA_PREFIX := API_
 VER_DOMAIN := -dev.${DOMAIN}
+
+LAMBDA_PREFIX := ${AWS_PRODUCT}_${VER}_
+LAMBDA_LFFLAGS := \
+	-X '${CODE_REPO}/elefant.EmailFromName=${NAME}' \
+	-X '${CODE_REPO}/elefant.EmailFromAddress=${EMAIL}' \
+	-X '${CODE_REPO}/elefant.SendGridAPIKey=${SENDGRID_API_KEY}' \
+	-X '${CODE_REPO}/elefant.Version=${VER}' \
+	-X '${CODE_REPO}/elefant.logServiceDSN=${LOG_SERVICE_DSN}'
 
 IMAGE_TAG_BUILDER_GOLANG := ${IMAGES_REPO}${PRODUCT}.golang:${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG}
 IMAGE_TAG_BUILDER_BUILDER := ${IMAGES_REPO}${PRODUCT}.builder:${IMAGE_TAG}
@@ -59,14 +67,14 @@ define echo_success
 endef
 
 define make_target
-	$(MAKE) -f ./$(THIS_FILE) ${1}
+	$(MAKE) -f ./Makefile ${1}
 endef
 
 help: ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' ${MAKEFILE_LIST} | sort | awk 'BEGIN {FS = ":.*?## "};	{printf "\033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 
-install:  ## Deploy current sources. Uses .env file wich has to have vars.
+install: ## Deploy current sources. Uses .env file wich has to have vars.
 	@$(call echo_start)
 	docker run --env-file .env --rm ${IMAGE_TAG_BUILDER_BUILDER} /bin/sh -c \
 		"cd ${WORKDIR} && make deploy"

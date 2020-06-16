@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"regexp"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -51,7 +50,7 @@ func getToken(request *request) (*elefant.AuthTokenID, error) {
 func handle(ctx context.Context, request *request) (*response, error) {
 	token, err := getToken(request)
 	if err != nil {
-		log.Printf(`Failed to get token: "%v".`, err)
+		elefant.Log.Error(`Failed to get token: "%v".`, err)
 		return &response{}, errors.New("Unauthorized") // generates 401
 	}
 
@@ -75,7 +74,7 @@ func handle(ctx context.Context, request *request) (*response, error) {
 	if err != nil {
 		return &response{}, fmt.Errorf(`failed to commit DB-transaction: "%v"`, err)
 	}
-	log.Printf(`Auth-token recreated: "%s" -> "%s" for client "%s".`,
+	elefant.Log.Info(`Auth-token recreated: "%s" -> "%s" for client "%s".`,
 		token, *newToken, *client)
 
 	result := newPolicy("Allow", request.MethodArn)
@@ -86,16 +85,19 @@ func handle(ctx context.Context, request *request) (*response, error) {
 }
 
 func main() {
+	elefant.Log.Init("backend", "api", "Authorizer")
+	defer elefant.Log.Flush()
+
 	var err error
 	db, err = elefant.NewDB()
 	if err != nil {
-		log.Panicf(`Failed to init DB: "%v".`, err)
+		elefant.Log.Panicf(`Failed to init DB: "%v".`, err)
 	}
 
 	tokenRegexp, err = regexp.Compile(
 		`^Bearer (\b[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-\b[0-9a-fA-F]{12}\b)$`)
 	if err != nil {
-		log.Panicf(`Failed to compile token-regexp: "%v".`, err)
+		elefant.Log.Panicf(`Failed to compile token-regexp: "%v".`, err)
 	}
 
 	aws.Start(handle)

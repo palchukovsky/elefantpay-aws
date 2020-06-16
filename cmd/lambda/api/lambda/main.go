@@ -1,11 +1,21 @@
 package main
 
 import (
+	"github.com/palchukovsky/elefantpay-aws/elefant"
 	"github.com/palchukovsky/elefantpay-aws/lambda/api"
 )
 
-var lambdaName string
+var lambdaName string // set by builder
 var lambda api.Lambda
 
-func init() { lambda = api.NewLambda(lambdaName) }
-func main() { lambda.Start() }
+func init() {
+	elefant.Log.Init("backend", "api", lambdaName)
+	defer elefant.Log.Flush()
+
+	lambda = api.NewLambda(lambdaName)
+}
+
+func main() {
+	defer elefant.Log.Flush()
+	lambda.Start()
+}

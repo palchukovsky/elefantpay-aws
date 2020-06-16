@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/lib/pq"
@@ -92,7 +91,7 @@ func (t *dbTrans) Rollback() {
 	if err := t.tx.Rollback(); err != nil {
 		// There is no way to restore application state at error at rollback, the
 		// behavior is undefined, so the application must be stopped.
-		log.Panicf(`Failed to commit database transaction: "%s".`, err)
+		Log.Panicf(`Failed to commit database transaction: "%s".`, err)
 	}
 	t.tx = nil
 }

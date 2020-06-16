@@ -3,11 +3,11 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/palchukovsky/elefantpay-aws/elefant"
 )
 
 type httpRequest = events.APIGatewayProxyRequest
@@ -52,13 +52,13 @@ func newHTTPResponseEmpty(statusCode int) (*httpResponse, error) {
 }
 
 func newHTTPResponseEmptyError(statusCode int, err error) (*httpResponse, error) {
-	log.Printf(`Response with error code %d: "%v".`, statusCode, err)
+	elefant.Log.Error(`Response with error code %d: "%v".`, statusCode, err)
 	return newHTTPResponseEmpty(statusCode)
 }
 
 func newHTTPResponseBadParam(message string, err error) (*httpResponse, error) {
 	statusCode := http.StatusBadRequest
-	log.Printf(`Response with error code %d: "%v" (%s).`,
+	elefant.Log.Error(`Response with error code %d: "%v" (%s).`,
 		statusCode, err, message)
 	response := &errorResponse{Message: message}
 	if len(response.Message) > 0 {
