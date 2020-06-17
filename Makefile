@@ -29,9 +29,9 @@ GOLANGCI_VER := 1.27.0
 .DEFAULT_GOAL := build
 
 ifeq (${VER}, dev)
- 	LOG_SERVICE_DSN := ${SENTRY_DEV}
+ 	LOG_SERVICE := ${PAPERTRAIL_DEV}
 else
-	LOG_SERVICE_DSN := ${SENTRY_PROD}
+	LOG_SERVICE := ${PAPERTRAIL_PROD}
 endif
 
 WORKDIR := /go/src/${CODE_REPO}
@@ -47,7 +47,7 @@ LAMBDA_LFFLAGS := \
 	-X '${CODE_REPO}/elefant.EmailFromAddress=${EMAIL}' \
 	-X '${CODE_REPO}/elefant.SendGridAPIKey=${SENDGRID_API_KEY}' \
 	-X '${CODE_REPO}/elefant.Version=${VER}' \
-	-X '${CODE_REPO}/elefant.logServiceDSN=${LOG_SERVICE_DSN}'
+	-X '${CODE_REPO}/elefant.logService=${LOG_SERVICE}'
 
 IMAGE_TAG_BUILDER_GOLANG := ${IMAGES_REPO}${PRODUCT}.golang:${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG}
 IMAGE_TAG_BUILDER_BUILDER := ${IMAGES_REPO}${PRODUCT}.builder:${IMAGE_TAG}
@@ -117,6 +117,7 @@ build: ## Build docker builder image with actual project sources.
 
 build-builder: ## Build all docker images for builder.
 	@$(call echo_start)
+	go mod tidy
 	$(call make_target,build-builder-golang)
 	@$(call echo_success)
 

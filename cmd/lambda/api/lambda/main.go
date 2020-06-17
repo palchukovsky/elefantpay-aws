@@ -9,7 +9,7 @@ var lambdaName string // set by builder
 var lambda api.Lambda
 
 func init() {
-	elefant.Log.Init("backend", "api", lambdaName)
+	elefant.InitProductLog("backend", "api", lambdaName)
 	defer elefant.Log.Flush()
 
 	lambda = api.NewLambda(lambdaName)

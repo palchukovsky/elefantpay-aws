@@ -89,7 +89,7 @@ func (request *lambdaRequest) dumpRequest() {
 			*request.Request, err)
 		return
 	}
-	elefant.Log.Debug(string(dump))
+	elefant.Log.Debug("Request dump: " + string(dump))
 }
 
 func (request *lambdaRequest) dumpResponse() {
@@ -106,7 +106,7 @@ func (request *lambdaRequest) dumpResponse() {
 			*request.Response, err)
 		return
 	}
-	elefant.Log.Debug(string(dump))
+	elefant.Log.Debug("Response dump: " + string(dump))
 }
 
 func (request *lambdaRequest) parseBody(

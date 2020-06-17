@@ -13,7 +13,7 @@ type response struct{}
 var db elefant.DB
 
 func init() {
-	elefant.Log.Init("backend", "test", "Test")
+	elefant.InitProductLog("backend", "test", "Test")
 	defer elefant.Log.Flush()
 
 	var err error

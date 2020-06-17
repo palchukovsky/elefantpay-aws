@@ -52,13 +52,13 @@ func newHTTPResponseEmpty(statusCode int) (*httpResponse, error) {
 }
 
 func newHTTPResponseEmptyError(statusCode int, err error) (*httpResponse, error) {
-	elefant.Log.Error(`Response with error code %d: "%v".`, statusCode, err)
+	elefant.Log.Warn(`Response with error code %d: "%v".`, statusCode, err)
 	return newHTTPResponseEmpty(statusCode)
 }
 
 func newHTTPResponseBadParam(message string, err error) (*httpResponse, error) {
 	statusCode := http.StatusBadRequest
-	elefant.Log.Error(`Response with error code %d: "%v" (%s).`,
+	elefant.Log.Warn(`Response with error code %d: "%v" (%s).`,
 		statusCode, err, message)
 	response := &errorResponse{Message: message}
 	if len(response.Message) > 0 {

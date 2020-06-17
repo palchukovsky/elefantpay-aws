@@ -85,7 +85,7 @@ func handle(ctx context.Context, request *request) (*response, error) {
 }
 
 func main() {
-	elefant.Log.Init("backend", "api", "Authorizer")
+	elefant.InitProductLog("backend", "api", "Authorizer")
 	defer elefant.Log.Flush()
 
 	var err error
