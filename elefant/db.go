@@ -21,13 +21,18 @@ type DBTrans interface {
 	Rollback()
 
 	CreateClient(email, password string, request interface{}) (Client, error)
-	ConfirmClient(ClientID) (Client, error)
+	// Creates a new client confirmation and returns created confirmation
+	// and token.
+	CreateClientConfirmation(
+		clientID ClientID, genToken func() string) (ConfirmationID, string, error)
+	ConfirmClient(confirmation ConfirmationID, token string) (*ClientID, error)
+	FindClientConfirmation(ClientID) (*ConfirmationID, error)
 	// FindClientByCreds tries to find client by credentials and returns it, and
 	// returns flag is it confirmed or not. If there is no error but client is
 	// not fined - return nil for client.
 	FindClientByCreds(email, password string) (Client, bool, error)
 
-	CreateAuth(client Client, request interface{}) (AuthTokenID, error)
+	CreateAuth(client ClientID, request interface{}) (AuthTokenID, error)
 	RecreateAuth(AuthTokenID) (*AuthTokenID, *ClientID, error)
 	RevokeClientAuth(AuthTokenID, ClientID) (bool, error)
 
@@ -96,14 +101,14 @@ func (t *dbTrans) Rollback() {
 	t.tx = nil
 }
 
-func (t *dbTrans) checkInsertResult(result sql.Result) error {
+func (t *dbTrans) checkAffectedRows(result sql.Result) error {
 	var rowsAffected int64
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
 	if rowsAffected != 1 {
-		return fmt.Errorf(`failed to insert record: affected %d record`,
+		return fmt.Errorf(`wrong number of affected rows: affected %d record`,
 			rowsAffected)
 	}
 	return nil
@@ -114,17 +119,71 @@ func (t *dbTrans) isDuplicateErr(err error) bool {
 	return ok && pgErr.Code == "23505"
 }
 
-func (t *dbTrans) ConfirmClient(id ClientID) (Client, error) {
-	query := `UPDATE client SET confirmed = true WHERE id = $1
-	RETURNING email`
-	var email string
-	switch err := t.tx.QueryRow(query, id).Scan(&email); {
+func (t *dbTrans) CreateClientConfirmation(
+	clientID ClientID, genToken func() string) (ConfirmationID, string, error) {
+	query := `INSERT INTO client_confirmation(id, "time", token, client)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id`
+	id := newConfirmationID()
+	now := time.Now().UTC()
+	var err error
+	for i := 0; i < 5; i++ {
+		token := genToken()
+		_, err = t.tx.Exec(query, id, now, token, clientID)
+		if err != nil {
+			if !t.isDuplicateErr(err) {
+				return id, token, err
+			}
+			continue
+		}
+		return id, token, nil
+	}
+	return id, "", err
+}
+
+func (t *dbTrans) ConfirmClient(
+	id ConfirmationID, token string) (*ClientID, error) {
+
+	query := `DELETE FROM client_confirmation
+		WHERE time < $1 OR (id = $2 AND token = $3)
+		RETURNING time < $1, client`
+	minTime := time.Now().UTC().Add(-ClientConfirmationCodeLiveTime)
+	rows, err := t.tx.Query(query, minTime, id, token)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var isExpired bool
+		var clientID ClientID
+		if err := rows.Scan(&isExpired, &clientID); err != nil {
+			return nil, err
+		}
+		if isExpired {
+			continue
+		}
+		return &clientID, nil
+	}
+
+	return nil, nil
+}
+
+func (t *dbTrans) FindClientConfirmation(
+	clientID ClientID) (*ConfirmationID, error) {
+	query := `SELECT id FROM client_confirmation
+		WHERE client = $1 AND time >= $2
+		ORDER BY time DESC
+		LIMIT 1`
+	minTime := time.Now().UTC().Add(-ClientConfirmationCodeLiveTime)
+	var result ConfirmationID
+	switch err := t.tx.QueryRow(query, clientID, minTime).Scan(&result); {
 	case err == sql.ErrNoRows:
 		return nil, nil
 	case err != nil:
 		return nil, err
 	}
-	return newClient(id, email), nil
+	return &result, nil
 }
 
 func (t *dbTrans) FindClientByCreds(
@@ -168,7 +227,7 @@ func (t *dbTrans) CreateClient(
 }
 
 func (t *dbTrans) CreateAuth(
-	client Client, request interface{}) (AuthTokenID, error) {
+	client ClientID, request interface{}) (AuthTokenID, error) {
 	token := newAuthTokenID()
 	requestStr, err := json.Marshal(request)
 	if err != nil {
@@ -178,11 +237,11 @@ func (t *dbTrans) CreateAuth(
 		VALUES ($1, $2, $3, $4, $5)`
 	time := time.Now().UTC()
 	var result sql.Result
-	result, err = t.tx.Exec(query, token, client.GetID(), time, time, requestStr)
+	result, err = t.tx.Exec(query, token, client, time, time, requestStr)
 	if err != nil {
 		return token, err
 	}
-	return token, t.checkInsertResult(result)
+	return token, t.checkAffectedRows(result)
 }
 
 func (t *dbTrans) RecreateAuth(
@@ -230,7 +289,7 @@ func (t *dbTrans) CreateAccount(
 	if err != nil {
 		return nil, err
 	}
-	if err := t.checkInsertResult(result); err != nil {
+	if err := t.checkAffectedRows(result); err != nil {
 		return nil, err
 	}
 	return newAccount(id, client, currency, balance, revision), nil

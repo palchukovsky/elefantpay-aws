@@ -36,12 +36,12 @@ type clientConfirmRequest struct {
 	Confirmation string `json:"confirmation"`
 }
 
-func newClientConfirmRequest(client elefant.Client) *clientConfirmRequest {
-	return &clientConfirmRequest{Confirmation: client.GetID().String()}
+func newClientConfirmRequest(id elefant.ConfirmationID) *clientConfirmRequest {
+	return &clientConfirmRequest{Confirmation: id.String()}
 }
 
 func createAuth(
-	client elefant.Client,
+	clientID elefant.ClientID,
 	db elefant.DBTrans,
 	lambdaRequest LambdaRequest,
 	successStatusCode int) (*httpResponse, error) {
@@ -49,35 +49,30 @@ func createAuth(
 	httpRequest := *lambdaRequest.GetHTTPRequest()
 	httpRequest.Body = "" // to remove secure info
 
-	token, err := db.CreateAuth(client, &httpRequest)
+	token, err := db.CreateAuth(clientID, &httpRequest)
 	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
+		return nil, fmt.Errorf(
 			`failed to create client auth_token for client "%s": "%v"`,
-			client.GetID(), err))
+			clientID, err)
 	}
 
-	err = db.Commit()
-	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to commit "%s": "%v"`, client, err))
-	}
-
-	elefant.Log.Info(`Created new auth_token "%s" for client "%s".`,
-		token, client.GetID())
 	return newHTTPResponseWithHeaders(successStatusCode,
 		&struct{}{},
 		map[string]string{AuthTokenHeaderName: token.String()})
 }
 
-func send2faCode(client elefant.Client) error {
+func gen2faCode() string {
+	result := 0
+	for i := 0; i < 5; i++ {
+		result += (rand.Intn(9) * int(math.Pow10(i)))
+	}
+	return strconv.Itoa(result)
+}
 
-	pin := func(len int) string {
-		result := 0
-		for i := 0; i < len; i++ {
-			result += (rand.Intn(9) * int(math.Pow10(i)))
-		}
-		return strconv.Itoa(result)
-	}(5)
+func send2faCode(
+	confirmationID elefant.ConfirmationID,
+	twoFaCode string,
+	client elefant.Client) error {
 
 	m := mail.NewV3Mail()
 	m.SetFrom(mail.NewEmail(elefant.EmailFromName, elefant.EmailFromAddress))
@@ -92,8 +87,9 @@ func send2faCode(client elefant.Client) error {
 	p.SetDynamicTemplateData("name", client.GetName())
 
 	p.SetDynamicTemplateData("confirmUrl",
-		fmt.Sprintf("https://elefantpay.com/?id=%s&token=%s", client.GetID(), pin))
-	p.SetDynamicTemplateData("pin", pin)
+		fmt.Sprintf("https://elefantpay.com/?id=%s&token=%s",
+			confirmationID, twoFaCode))
+	p.SetDynamicTemplateData("pin", twoFaCode)
 
 	m.AddPersonalizations(p)
 
@@ -115,9 +111,9 @@ func send2faCode(client elefant.Client) error {
 			response.StatusCode, response.Body, response.Headers)
 	}
 
-	elefant.Log.Info(
-		`Sent 2FA confirmation code "%s" for user "%s" on email "%s".`,
-		pin, client.GetID(), client.GetEmail())
+	elefant.Log.Debug(
+		`Sent 2FA-code "%s" for confirmation "%s" for user "%s" on email "%s".`,
+		confirmationID, twoFaCode, client.GetID(), client.GetEmail())
 
 	return nil
 }
@@ -148,16 +144,33 @@ func (lambda *clientCreateLambda) Run(
 	httpRequest := *lambdaRequest.GetHTTPRequest()
 	httpRequest.Body = "" // to remove secure info.
 
-	client, accounts, err := lambda.createClient(request, &httpRequest)
+	db, err := lambda.db.Begin()
 	if err != nil {
-		return newHTTPResponseInternalServerError(
+		return nil, err
+	}
+	defer db.Rollback()
+
+	client, accounts, err := lambda.createClient(request, &httpRequest, db)
+	if err != nil {
+		return nil,
 			fmt.Errorf(`failed to store new client record for request "%v": "%s"`,
-				*request, err))
+				*request, err)
 	}
 	if client == nil {
 		return newHTTPResponseEmptyError(http.StatusConflict,
-			fmt.Errorf(`failed to create new client as email "%s" already used`,
-				request.Email))
+			fmt.Errorf(`client email "%s" already used`, request.Email))
+	}
+
+	var confirmationID elefant.ConfirmationID
+	var twoFaCode string
+	confirmationID, twoFaCode, err = db.CreateClientConfirmation(
+		client.GetID(), gen2faCode)
+	if err != nil {
+		return nil, fmt.Errorf(`failed to create confirmation: "%v"`, err)
+	}
+
+	if err := db.Commit(); err != nil {
+		return nil, err
 	}
 
 	elefant.Log.Info(`Created new client "%s" with email "%s".`,
@@ -167,11 +180,12 @@ func (lambda *clientCreateLambda) Run(
 			acc.GetID(), acc.GetCurrency().GetISO(), client.GetID())
 	}
 
-	if err := send2faCode(client); err != nil {
+	if err := send2faCode(confirmationID, twoFaCode, client); err != nil {
 		elefant.Log.Err(err)
 	}
 
-	return newHTTPResponse(http.StatusCreated, newClientConfirmRequest(client))
+	return newHTTPResponse(http.StatusCreated,
+		newClientConfirmRequest(confirmationID))
 }
 
 func (*clientCreateLambda) CreateRequest() interface{} {
@@ -180,16 +194,10 @@ func (*clientCreateLambda) CreateRequest() interface{} {
 
 func (lambda *clientCreateLambda) createClient(
 	request *clientRequest,
-	httpRequest interface{}) (elefant.Client, []elefant.Account, error) {
+	httpRequest interface{},
+	db elefant.DBTrans) (elefant.Client, []elefant.Account, error) {
 
-	db, err := lambda.db.Begin()
-	if err != nil {
-		return nil, nil, err
-	}
-	defer db.Rollback()
-
-	var client elefant.Client
-	client, err = db.CreateClient(request.Email, request.Password, httpRequest)
+	client, err := db.CreateClient(request.Email, request.Password, httpRequest)
 	if err != nil {
 		return nil, nil, fmt.Errorf(`failed to create new client record: "%v"`, err)
 	}
@@ -199,17 +207,13 @@ func (lambda *clientCreateLambda) createClient(
 	}
 
 	var account elefant.Account
-	account, err = db.CreateAccount(elefant.NewCurrency("NGN"), client.GetID())
+	account, err = db.CreateAccount(elefant.NewCurrency("EUR"), client.GetID())
 	if err != nil {
 		return nil, nil, fmt.Errorf(`failed to create new account record: "%v"`,
 			err)
 	}
 
-	if err := db.Commit(); err != nil {
-		return nil, nil, fmt.Errorf(`failed to commit: "%v"`, err)
-	}
-
-	return client, []elefant.Account{account}, db.Commit()
+	return client, []elefant.Account{account}, nil
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -233,19 +237,52 @@ func (lambda *clientLoginLambda) Run(
 	client, isConfirmed, err := db.FindClientByCreds(
 		request.Email, request.Password)
 	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
+		return nil, fmt.Errorf(
 			`failed to find client record by email "%s" and password: "%s"`,
-			request.Email, err))
+			request.Email, err)
 	}
 	if client == nil {
-		return newHTTPResponseEmpty(http.StatusNotFound)
+		return newHTTPResponseEmptyError(http.StatusNotFound,
+			fmt.Errorf(`wrong client credentials with email "%s" and password`,
+				request.Email))
 	}
 	if !isConfirmed {
+		confirmationID, err := db.FindClientConfirmation(client.GetID())
+		if err != nil {
+			return nil, fmt.Errorf(
+				`failed to find client confirmation for client "%s": "%s"`,
+				client.GetID(), err)
+		}
+		if confirmationID == nil {
+			newConfirmationID, twoFaCode, err := db.CreateClientConfirmation(
+				client.GetID(), gen2faCode)
+			if err != nil {
+				return nil, fmt.Errorf(`failed to create confirmation: "%v"`, err)
+			}
+			if err := db.Commit(); err != nil {
+				return nil, err
+			}
+			confirmationID = &newConfirmationID
+			if err := send2faCode(*confirmationID, twoFaCode, client); err != nil {
+				return nil, fmt.Errorf(`failed to send confirmation code: "%v"`, err)
+			}
+		}
 		return newHTTPResponse(http.StatusUnprocessableEntity,
-			newClientConfirmRequest(client))
+			newClientConfirmRequest(*confirmationID))
 	}
 
-	return createAuth(client, db, lambdaRequest, http.StatusCreated)
+	var response *httpResponse
+	response, err = createAuth(
+		client.GetID(), db, lambdaRequest, http.StatusCreated)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Commit(); err != nil {
+		return nil, err
+	}
+
+	elefant.Log.Debug(`Created new auth-token for client "%s".`, client.GetID())
+	return response, err
 }
 
 func (lambda *clientLoginLambda) CreateRequest() interface{} {
@@ -277,19 +314,19 @@ func (lambda *clientLogoutLambda) Run(
 	var has bool
 	has, err = db.RevokeClientAuth(token, request.GetClientID())
 	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to revoke auth_token "%s": "%v"`, token, err))
+		return nil, fmt.Errorf(`failed to revoke auth-token "%s": "%v"`, token, err)
 	}
 	if !has {
-		return newHTTPResponseEmpty(http.StatusNotFound)
+		return newHTTPResponseEmptyError(http.StatusNotFound,
+			fmt.Errorf(`no auth-tokens to revoke for client "%s"`,
+				request.GetClientID()))
 	}
 
 	if err = db.Commit(); err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to commit: "%v"`, err))
+		return nil, err
 	}
 
-	elefant.Log.Info(`Auth-token "%s" revoked for client "%s".`, token, client)
+	elefant.Log.Debug(`Auth-token "%s" revoked for client "%s".`, token, client)
 	return newHTTPResponseEmpty(http.StatusOK)
 }
 
@@ -314,14 +351,10 @@ func (lambda *clientConfirmLambda) Run(
 	lambdaRequest LambdaRequest) (*httpResponse, error) {
 	request := lambdaRequest.GetRequest().(*clientConfirmation)
 
-	clientID, err := elefant.ParseClientID(request.ID)
+	confirmID, err := elefant.ParseConfirmationID(request.ID)
 	if err != nil {
 		return newHTTPResponseBadParam("confirmation ID is invalid",
-			fmt.Errorf(`failed to parse client ID "%s": "%v"`, clientID, err))
-	}
-
-	if request.Token != "1234" {
-		return newHTTPResponseEmpty(http.StatusNotFound)
+			fmt.Errorf(`failed to parse confirmation ID "%s": "%v"`, request.ID, err))
 	}
 
 	var db elefant.DBTrans
@@ -331,23 +364,34 @@ func (lambda *clientConfirmLambda) Run(
 	}
 	defer db.Rollback()
 
-	var client elefant.Client
-	client, err = db.ConfirmClient(clientID)
+	var clientID *elefant.ClientID
+	clientID, err = db.ConfirmClient(confirmID, request.Token)
 	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to confirm client "%s": "%v"`, client, err))
+		return nil, fmt.Errorf(
+			`failed to confirm client by confirmation "%s": "%v"`, confirmID, err)
 	}
-	if client == nil {
-		return newHTTPResponseEmpty(http.StatusNotFound)
+	if clientID == nil {
+		// Has to be committed to complete the process even if no client found.
+		if err := db.Commit(); err != nil {
+			return nil, err
+		}
+		return newHTTPResponseEmptyError(http.StatusNotFound,
+			fmt.Errorf(`wrong token "%s" provided for confirmation "%s"`,
+				request.Token, request.ID))
 	}
 
-	response, err := createAuth(client, db, lambdaRequest, http.StatusNoContent)
+	response, err := createAuth(
+		*clientID, db, lambdaRequest, http.StatusNoContent)
 	if err != nil {
 		return response, err
 	}
+	if err := db.Commit(); err != nil {
+		return nil, err
+	}
 
 	elefant.Log.Info(`Confirmed client "%s" by token "%s".`,
-		client, request.Token)
+		clientID, request.Token)
+	elefant.Log.Debug(`Created new auth-token for client "%s".`, clientID)
 	return response, nil
 }
 

@@ -40,9 +40,9 @@ func newHTTPResponseWithHeaders(
 	headers map[string]string) (*httpResponse, error) {
 	body, err := json.Marshal(data)
 	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
+		return nil, fmt.Errorf(
 			`failed serialize request response with status code %d: "%s"`,
-			statusCode, err))
+			statusCode, err)
 	}
 	return newHTTPResponseWithBody(statusCode, string(body), headers)
 }
@@ -71,11 +71,3 @@ func newHTTPResponseBadParam(message string, err error) (*httpResponse, error) {
 func newHTTPResponseNoContent() (*httpResponse, error) {
 	return newHTTPResponseWithBody(http.StatusNoContent, "", map[string]string{})
 }
-
-func newHTTPResponseInternalServerError(err error) (*httpResponse, error) {
-	return newHTTPResponseEmptyError(http.StatusInternalServerError, err)
-}
-
-// func newHTTPResponseUnauthorized() (*httpResponse, error) {
-// 	return &httpResponse{StatusCode: http.StatusUnauthorized}, nil
-// }

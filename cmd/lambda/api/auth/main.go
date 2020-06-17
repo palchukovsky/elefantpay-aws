@@ -76,7 +76,7 @@ func handle(ctx context.Context, request *request) (*response, error) {
 	if err != nil {
 		return &response{}, fmt.Errorf(`failed to commit DB-transaction: "%v"`, err)
 	}
-	elefant.Log.Info(`Auth-token recreated: "%s" -> "%s" for client "%s".`,
+	elefant.Log.Debug(`Auth-token recreated: "%s" -> "%s" for client "%s".`,
 		token, *newToken, *client)
 
 	result := newPolicy("Allow", request.MethodArn)

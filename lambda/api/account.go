@@ -37,15 +37,13 @@ func (lambda *accountListLambda) Run(
 	request LambdaRequest) (*httpResponse, error) {
 	db, err := lambda.db.Begin()
 	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to begin DB transaction: "%v"`, err))
+		return nil, err
 	}
 	defer db.Rollback()
 	var accounts []elefant.Account
 	accounts, err = db.GetClientAccounts(request.GetClientID())
 	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to query DB: "%v"`, err))
+		return nil, err
 	}
 	result := map[string]*accountInfo{}
 	for _, acc := range accounts {
@@ -77,8 +75,7 @@ func (lambda *accountInfoLambda) Run(
 	request LambdaRequest) (*httpResponse, error) {
 	db, err := lambda.db.Begin()
 	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to begin DB transaction: "%v"`, err))
+		return nil, err
 	}
 	defer db.Rollback()
 
@@ -97,8 +94,7 @@ func (lambda *accountInfoLambda) Run(
 	var account elefant.Account
 	account, err = db.FindAccountUpdate(id, request.GetClientID(), revision)
 	if err != nil {
-		return newHTTPResponseInternalServerError(fmt.Errorf(
-			`failed to query DB: "%v"`, err))
+		return nil, err
 	}
 	if account == nil {
 		return newHTTPResponseNoContent()

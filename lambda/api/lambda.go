@@ -93,11 +93,8 @@ func (request *lambdaRequest) dumpRequest() {
 }
 
 func (request *lambdaRequest) dumpResponse() {
-	if request.ResponseErr != nil {
-		elefant.Log.Error(`Request returned error: "%v".`, request.ResponseErr)
-	}
 	if request.Response == nil {
-		elefant.Log.Info(`No response.`)
+		elefant.Log.Debug("Response dump: No response.")
 		return
 	}
 	dump, err := json.Marshal(request.Response)
@@ -144,10 +141,29 @@ func (request *lambdaRequest) Execute(impl lambdaImpl) {
 	}
 
 	defer func() {
+
 		request.updateResponseHeaders()
-		if isDev {
+
+		if request.ResponseErr != nil {
+			elefant.Log.Error(`Lambda request execution returned error: "%v".`,
+				request.ResponseErr)
+			if !isDev {
+				request.dumpRequest()
+			}
+			request.dumpResponse()
+
+			// Changing error 502 with 500.
+			request.Response, request.ResponseErr = newHTTPResponseEmpty(
+				http.StatusInternalServerError)
+			if request.ResponseErr != nil {
+				elefant.Log.Error(`Failed to generate error 500: "%v".`,
+					request.ResponseErr)
+			}
+
+		} else if isDev {
 			request.dumpResponse()
 		}
+
 	}()
 
 	request.implRequest = impl.CreateRequest()
