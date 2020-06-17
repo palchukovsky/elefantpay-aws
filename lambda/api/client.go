@@ -127,9 +127,9 @@ func (lambda *clientCreateLambda) Run(
 		return newHTTPResponseBadParam("email has invalid format",
 			fmt.Errorf(`failed to validate email: "%v"`, request.Email))
 	}
-	if len(request.Password) < 8 {
+	if len(request.Password) < 5 {
 		return newHTTPResponseBadParam(
-			"password could not be shorter than 8 symbols",
+			"password could not be shorter than 5 symbols",
 			fmt.Errorf(`failed to validate password: too small (%d symbols)`,
 				len(request.Password)))
 	}
