@@ -2,7 +2,10 @@ package api
 
 import (
 	"fmt"
+	"math"
+	"math/rand"
 	"net/http"
+	"strconv"
 
 	"github.com/badoux/checkmail"
 	"github.com/palchukovsky/elefantpay-aws/elefant"
@@ -67,6 +70,15 @@ func createAuth(
 }
 
 func send2faCode(client elefant.Client) error {
+
+	pin := func(len int) string {
+		result := 0
+		for i := 0; i < len; i++ {
+			result += (rand.Intn(9) * int(math.Pow10(i)))
+		}
+		return strconv.Itoa(result)
+	}(5)
+
 	m := mail.NewV3Mail()
 	m.SetFrom(mail.NewEmail(elefant.EmailFromName, elefant.EmailFromAddress))
 	m.SetTemplateID("d-fba4293d0de84a719e3c5d604663ed39")
@@ -79,7 +91,6 @@ func send2faCode(client elefant.Client) error {
 
 	p.SetDynamicTemplateData("name", client.GetName())
 
-	pin := "1234"
 	p.SetDynamicTemplateData("confirmUrl",
 		fmt.Sprintf("https://elefantpay.com/?id=%s&token=%s", client.GetID(), pin))
 	p.SetDynamicTemplateData("pin", pin)

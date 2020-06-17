@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"math/rand"
+	"time"
 
 	aws "github.com/aws/aws-lambda-go/lambda"
 	"github.com/palchukovsky/elefantpay-aws/elefant"
@@ -15,6 +17,8 @@ var db elefant.DB
 func init() {
 	elefant.InitProductLog("backend", "test", "Test")
 	defer elefant.Log.Flush()
+
+	rand.Seed(time.Now().UnixNano())
 
 	var err error
 	db, err = elefant.NewDB()

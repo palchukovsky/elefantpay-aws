@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"regexp"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	aws "github.com/aws/aws-lambda-go/lambda"
@@ -87,6 +89,8 @@ func handle(ctx context.Context, request *request) (*response, error) {
 func main() {
 	elefant.InitProductLog("backend", "api", "Authorizer")
 	defer elefant.Log.Flush()
+
+	rand.Seed(time.Now().UnixNano())
 
 	var err error
 	db, err = elefant.NewDB()
