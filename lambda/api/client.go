@@ -96,7 +96,7 @@ func send2faCode(client elefant.Client) error {
 			`failed to send 2FA confirmation code for user "%s" on email "%s": "%v"`,
 			client.GetID(), client.GetEmail(), err)
 	}
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != http.StatusAccepted {
 		return fmt.Errorf(
 			`failed to send 2FA confirmation code for user "%s" on email "%s": `+
 				` statis code "%d", response: "%s", headers: "%s"`,
