@@ -26,11 +26,16 @@ type DBTrans interface {
 	CreateClientConfirmation(
 		clientID ClientID, genToken func() string) (ConfirmationID, string, error)
 	ConfirmClient(confirmation ConfirmationID, token string) (*ClientID, error)
-	FindClientConfirmation(ClientID) (*ConfirmationID, error)
+	FindLastClientConfirmation(
+		clientID ClientID, validPeriod time.Duration) (*ConfirmationID, error)
 	// FindClientByCreds tries to find client by credentials and returns it, and
 	// returns flag is it confirmed or not. If there is no error but client is
 	// not fined - return nil for client.
 	FindClientByCreds(email, password string) (Client, bool, error)
+	// FindClientByEmail tries to find client by email and returns it, and
+	// returns flag is it confirmed or not. If there is no error but client is
+	// not fined - return nil for client.
+	FindClientByEmail(email string) (Client, bool, error)
 
 	CreateAuth(client ClientID, request interface{}) (AuthTokenID, error)
 	RecreateAuth(AuthTokenID) (*AuthTokenID, *ClientID, error)
@@ -169,13 +174,13 @@ func (t *dbTrans) ConfirmClient(
 	return nil, nil
 }
 
-func (t *dbTrans) FindClientConfirmation(
-	clientID ClientID) (*ConfirmationID, error) {
+func (t *dbTrans) FindLastClientConfirmation(
+	clientID ClientID, validPeriod time.Duration) (*ConfirmationID, error) {
 	query := `SELECT id FROM client_confirmation
 		WHERE client = $1 AND time >= $2
 		ORDER BY time DESC
 		LIMIT 1`
-	minTime := time.Now().UTC().Add(-ClientConfirmationCodeLiveTime)
+	minTime := time.Now().UTC().Add(-validPeriod)
 	var result ConfirmationID
 	switch err := t.tx.QueryRow(query, clientID, minTime).Scan(&result); {
 	case err == sql.ErrNoRows:
@@ -203,6 +208,19 @@ func (t *dbTrans) FindClientByCreds(
 	}
 	if !passwordMatch {
 		return nil, false, nil
+	}
+	return newClient(id, email), isConfirmed, nil
+}
+
+func (t *dbTrans) FindClientByEmail(email string) (Client, bool, error) {
+	query := `SELECT id, confirmed FROM client WHERE email = $1`
+	var id ClientID
+	var isConfirmed bool
+	switch err := t.tx.QueryRow(query, email).Scan(&id, &isConfirmed); {
+	case err == sql.ErrNoRows:
+		return nil, false, nil
+	case err != nil:
+		return nil, false, err
 	}
 	return newClient(id, email), isConfirmed, nil
 }

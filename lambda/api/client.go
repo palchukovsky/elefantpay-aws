@@ -27,6 +27,10 @@ func (lambda *clientLambda) Init() error {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+type clientEmail struct {
+	Email string `json:"email"`
+}
+
 type clientRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -111,7 +115,7 @@ func send2faCode(
 			response.StatusCode, response.Body, response.Headers)
 	}
 
-	elefant.Log.Debug(
+	elefant.Log.Info(
 		`Sent 2FA-code "%s" for confirmation "%s" for user "%s" on email "%s".`,
 		confirmationID, twoFaCode, client.GetID(), client.GetEmail())
 
@@ -158,7 +162,7 @@ func (lambda *clientCreateLambda) Run(
 	}
 	if client == nil {
 		return newHTTPResponseEmptyError(http.StatusConflict,
-			fmt.Errorf(`client email "%s" already used`, request.Email))
+			fmt.Errorf(`client email "%s" already is used`, request.Email))
 	}
 
 	var confirmationID elefant.ConfirmationID
@@ -202,7 +206,7 @@ func (lambda *clientCreateLambda) createClient(
 		return nil, nil, fmt.Errorf(`failed to create new client record: "%v"`, err)
 	}
 	if client == nil {
-		// email is already used
+		// email is already is used
 		return nil, nil, nil
 	}
 
@@ -247,7 +251,8 @@ func (lambda *clientLoginLambda) Run(
 				request.Email))
 	}
 	if !isConfirmed {
-		confirmationID, err := db.FindClientConfirmation(client.GetID())
+		confirmationID, err := db.FindLastClientConfirmation(
+			client.GetID(), elefant.ClientConfirmationCodeLiveTime)
 		if err != nil {
 			return nil, fmt.Errorf(
 				`failed to find client confirmation for client "%s": "%s"`,
@@ -281,7 +286,7 @@ func (lambda *clientLoginLambda) Run(
 		return nil, err
 	}
 
-	elefant.Log.Debug(`Created new auth-token for client "%s".`, client.GetID())
+	elefant.Log.Info(`Created new auth-token for client "%s".`, client.GetID())
 	return response, err
 }
 
@@ -326,7 +331,7 @@ func (lambda *clientLogoutLambda) Run(
 		return nil, err
 	}
 
-	elefant.Log.Debug(`Auth-token "%s" revoked for client "%s".`, token, client)
+	elefant.Log.Info(`Auth-token "%s" revoked for client "%s".`, token, client)
 	return newHTTPResponseEmpty(http.StatusOK)
 }
 
@@ -391,8 +396,73 @@ func (lambda *clientConfirmLambda) Run(
 
 	elefant.Log.Info(`Confirmed client "%s" by token "%s".`,
 		clientID, request.Token)
-	elefant.Log.Debug(`Created new auth-token for client "%s".`, clientID)
+	elefant.Log.Info(`Created new auth-token for client "%s".`, clientID)
 	return response, nil
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+type clientConfirmResendLambda struct{ clientLambda }
+
+func (*lambdaFactory) NewClientConfirmResendLambda() lambdaImpl {
+	return &clientConfirmResendLambda{clientLambda: newClientLambda()}
+}
+
+func (lambda *clientConfirmResendLambda) Run(
+	lambdaRequest LambdaRequest) (*httpResponse, error) {
+	request := lambdaRequest.GetRequest().(*clientEmail)
+
+	db, err := lambda.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Rollback()
+
+	client, isConfirmed, err := db.FindClientByEmail(request.Email)
+	if err != nil {
+		return nil, fmt.Errorf(`failed to find client record by email "%s": "%s"`,
+			request.Email, err)
+	}
+	if client == nil {
+		return newHTTPResponseEmptyError(http.StatusNotFound,
+			fmt.Errorf(`wrong client credentials with email "%s"`, request.Email))
+	}
+	if isConfirmed {
+		return newHTTPResponseEmptyError(http.StatusConflict,
+			fmt.Errorf(`client "%s" already is confirmed`, client.GetID()))
+	}
+
+	prevConfirmID, err := db.FindLastClientConfirmation(
+		client.GetID(), elefant.ClientConfirmationCodeResendTime)
+	if err != nil {
+		return nil, fmt.Errorf(
+			`failed to find client confirmation for client "%s": "%s"`,
+			client.GetID(), err)
+	}
+	if prevConfirmID != nil {
+		return newHTTPResponseEmptyError(http.StatusTooEarly,
+			fmt.Errorf(
+				`early confirmation code request after "%s" for client "%s"`,
+				client.GetID(), *prevConfirmID))
+	}
+
+	confirmationID, twoFaCode, err := db.CreateClientConfirmation(
+		client.GetID(), gen2faCode)
+	if err != nil {
+		return nil, fmt.Errorf(`failed to create confirmation: "%v"`, err)
+	}
+	if err := db.Commit(); err != nil {
+		return nil, err
+	}
+	if err := send2faCode(confirmationID, twoFaCode, client); err != nil {
+		return nil, fmt.Errorf(`failed to send confirmation code: "%v"`, err)
+	}
+	return newHTTPResponse(http.StatusAccepted,
+		newClientConfirmRequest(confirmationID))
+}
+
+func (lambda *clientConfirmResendLambda) CreateRequest() interface{} {
+	return &clientEmail{}
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -196,6 +196,7 @@ define for-each-api-lambda
 	$(call ${1},ClientLogin)
 	$(call ${1},ClientLogout)
 	$(call ${1},ClientConfirm)
+	$(call ${1},ClientConfirmResend)
 	$(call ${1},AccountList)
 	$(call ${1},AccountInfo)
 	$(call ${1},AccountBalanceUpdate)

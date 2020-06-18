@@ -18,5 +18,9 @@ var Version = ""
 // confirmation code.
 const ClientConfirmationCodeLiveTime = time.Duration(60) * time.Minute
 
+// ClientConfirmationCodeResendTime is a min time bitween confirmation
+// code resending.
+const ClientConfirmationCodeResendTime = time.Duration(3) * time.Minute
+
 // IsDev returns true if build is not production.
 func IsDev() bool { return Version == "dev" }
