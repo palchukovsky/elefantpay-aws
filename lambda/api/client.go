@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"math"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -31,9 +30,20 @@ type clientEmail struct {
 	Email string `json:"email"`
 }
 
-type clientRequest struct {
+type clientCredentials struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type clientRegistration struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type clientInfo struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
 type clientConfirmRequest struct {
@@ -45,7 +55,7 @@ func newClientConfirmRequest(id elefant.ConfirmationID) *clientConfirmRequest {
 }
 
 func createAuth(
-	clientID elefant.ClientID,
+	client elefant.Client,
 	db elefant.DBTrans,
 	lambdaRequest LambdaRequest,
 	successStatusCode int) (*httpResponse, error) {
@@ -53,24 +63,24 @@ func createAuth(
 	httpRequest := *lambdaRequest.GetHTTPRequest()
 	httpRequest.Body = "" // to remove secure info
 
-	token, err := db.CreateAuth(clientID, &httpRequest)
+	token, err := db.CreateAuth(client.GetID(), &httpRequest)
 	if err != nil {
 		return nil, fmt.Errorf(
 			`failed to create client auth_token for client "%s": "%v"`,
-			clientID, err)
+			client.GetID(), err)
 	}
 
 	return newHTTPResponseWithHeaders(successStatusCode,
-		&struct{}{},
+		&clientInfo{Name: client.GetName(), Email: client.GetEmail()},
 		map[string]string{AuthTokenHeaderName: token.String()})
 }
 
 func gen2faCode() string {
-	result := 0
+	result := ""
 	for i := 0; i < 5; i++ {
-		result += (rand.Intn(9) * int(math.Pow10(i)))
+		result += strconv.Itoa(rand.Intn(9))
 	}
-	return strconv.Itoa(result)
+	return result
 }
 
 func send2faCode(
@@ -117,7 +127,7 @@ func send2faCode(
 
 	elefant.Log.Info(
 		`Sent 2FA-code "%s" for confirmation "%s" for user "%s" on email "%s".`,
-		confirmationID, twoFaCode, client.GetID(), client.GetEmail())
+		twoFaCode, confirmationID, client.GetID(), client.GetEmail())
 
 	return nil
 }
@@ -132,7 +142,7 @@ func (*lambdaFactory) NewClientCreateLambda() lambdaImpl {
 
 func (lambda *clientCreateLambda) Run(
 	lambdaRequest LambdaRequest) (*httpResponse, error) {
-	request := lambdaRequest.GetRequest().(*clientRequest)
+	request := lambdaRequest.GetRequest().(*clientRegistration)
 
 	if err := checkmail.ValidateFormat(request.Email); err != nil {
 		return newHTTPResponseBadParam("email has invalid format",
@@ -193,15 +203,16 @@ func (lambda *clientCreateLambda) Run(
 }
 
 func (*clientCreateLambda) CreateRequest() interface{} {
-	return &clientRequest{}
+	return &clientRegistration{}
 }
 
 func (lambda *clientCreateLambda) createClient(
-	request *clientRequest,
+	request *clientRegistration,
 	httpRequest interface{},
 	db elefant.DBTrans) (elefant.Client, []elefant.Account, error) {
 
-	client, err := db.CreateClient(request.Email, request.Password, httpRequest)
+	client, err := db.CreateClient(
+		request.Email, request.Password, request.Name, httpRequest)
 	if err != nil {
 		return nil, nil, fmt.Errorf(`failed to create new client record: "%v"`, err)
 	}
@@ -230,7 +241,7 @@ func (*lambdaFactory) NewClientLoginLambda() lambdaImpl {
 
 func (lambda *clientLoginLambda) Run(
 	lambdaRequest LambdaRequest) (*httpResponse, error) {
-	request := lambdaRequest.GetRequest().(*clientRequest)
+	request := lambdaRequest.GetRequest().(*clientCredentials)
 
 	db, err := lambda.db.Begin()
 	if err != nil {
@@ -277,8 +288,7 @@ func (lambda *clientLoginLambda) Run(
 	}
 
 	var response *httpResponse
-	response, err = createAuth(
-		client.GetID(), db, lambdaRequest, http.StatusCreated)
+	response, err = createAuth(client, db, lambdaRequest, http.StatusCreated)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +301,7 @@ func (lambda *clientLoginLambda) Run(
 }
 
 func (lambda *clientLoginLambda) CreateRequest() interface{} {
-	return &clientRequest{}
+	return &clientCredentials{}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -385,8 +395,13 @@ func (lambda *clientConfirmLambda) Run(
 				request.Token, request.ID))
 	}
 
-	response, err := createAuth(
-		*clientID, db, lambdaRequest, http.StatusNoContent)
+	var client elefant.Client
+	client, err = db.GetClient(*clientID)
+	if err != nil {
+		return nil, fmt.Errorf(`failed to get client "%s": "%v"`, *clientID, err)
+	}
+
+	response, err := createAuth(client, db, lambdaRequest, http.StatusOK)
 	if err != nil {
 		return response, err
 	}

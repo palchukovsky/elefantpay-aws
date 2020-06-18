@@ -21,8 +21,8 @@ type Client interface {
 	GetName() string
 }
 
-func newClient(id ClientID, email string) *client {
-	return &client{id: id, email: email}
+func newClient(id ClientID, email, name string) *client {
+	return &client{id: id, email: email, name: name}
 }
 
 type client struct {

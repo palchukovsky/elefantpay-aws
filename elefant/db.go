@@ -20,7 +20,8 @@ type DBTrans interface {
 	Commit() error
 	Rollback()
 
-	CreateClient(email, password string, request interface{}) (Client, error)
+	CreateClient(
+		email, password, name string, request interface{}) (Client, error)
 	// Creates a new client confirmation and returns created confirmation
 	// and token.
 	CreateClientConfirmation(
@@ -28,6 +29,7 @@ type DBTrans interface {
 	ConfirmClient(confirmation ConfirmationID, token string) (*ClientID, error)
 	FindLastClientConfirmation(
 		clientID ClientID, validPeriod time.Duration) (*ConfirmationID, error)
+	GetClient(ClientID) (Client, error)
 	// FindClientByCreds tries to find client by credentials and returns it, and
 	// returns flag is it confirmed or not. If there is no error but client is
 	// not fined - return nil for client.
@@ -191,16 +193,28 @@ func (t *dbTrans) FindLastClientConfirmation(
 	return &result, nil
 }
 
+func (t *dbTrans) GetClient(id ClientID) (Client, error) {
+	var email string
+	var name string
+	err := t.tx.QueryRow(`SELECT email, name FROM client WHERE id = $1`, id).
+		Scan(&email, &name)
+	if err != nil {
+		return nil, err
+	}
+	return newClient(id, email, name), nil
+}
+
 func (t *dbTrans) FindClientByCreds(
 	email, password string) (Client, bool, error) {
 	query := `SELECT
-			id, (password = crypt($2, password)) AS password_match, confirmed
+			id, (password = crypt($2, password)) AS password_match, confirmed, name
 		FROM client WHERE email = $1`
 	var id ClientID
 	var passwordMatch bool
 	var isConfirmed bool
+	var name string
 	switch err := t.tx.QueryRow(query, email, password).
-		Scan(&id, &passwordMatch, &isConfirmed); {
+		Scan(&id, &passwordMatch, &isConfirmed, &name); {
 	case err == sql.ErrNoRows:
 		return nil, false, nil
 	case err != nil:
@@ -209,39 +223,42 @@ func (t *dbTrans) FindClientByCreds(
 	if !passwordMatch {
 		return nil, false, nil
 	}
-	return newClient(id, email), isConfirmed, nil
+	return newClient(id, email, name), isConfirmed, nil
 }
 
 func (t *dbTrans) FindClientByEmail(email string) (Client, bool, error) {
-	query := `SELECT id, confirmed FROM client WHERE email = $1`
+	query := `SELECT id, confirmed, name FROM client WHERE email = $1`
 	var id ClientID
 	var isConfirmed bool
-	switch err := t.tx.QueryRow(query, email).Scan(&id, &isConfirmed); {
+	var name string
+	switch err := t.tx.QueryRow(query, email).Scan(&id, &isConfirmed, &name); {
 	case err == sql.ErrNoRows:
 		return nil, false, nil
 	case err != nil:
 		return nil, false, err
 	}
-	return newClient(id, email), isConfirmed, nil
+	return newClient(id, email, name), isConfirmed, nil
 }
 
 func (t *dbTrans) CreateClient(
-	email, password string, request interface{}) (Client, error) {
+	email, password, name string, request interface{}) (Client, error) {
 	requestStr, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
-	query := `INSERT INTO client(id, email, password, time, request, confirmed)
-		VALUES($1, $2, crypt($3, gen_salt('bf')), $4, $5, false)`
+	query := `INSERT INTO client(
+			id, name, email, password, time, request, confirmed)
+		VALUES($1, $2, $3, crypt($4, gen_salt('bf')), $5, $6, false)`
 	id := newClientID()
-	_, err = t.tx.Exec(query, id, email, password, time.Now().UTC(), requestStr)
+	_, err = t.tx.Exec(
+		query, id, name, email, password, time.Now().UTC(), requestStr)
 	if err != nil {
 		if t.isDuplicateErr(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return newClient(id, email), nil
+	return newClient(id, email, name), nil
 }
 
 func (t *dbTrans) CreateAuth(

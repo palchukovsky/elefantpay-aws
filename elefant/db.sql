@@ -5,7 +5,7 @@
 -- Dumped from database version 11.6
 -- Dumped by pg_dump version 12.3
 
--- Started on 2020-06-18 21:47:00
+-- Started on 2020-06-19 01:40:06
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -27,7 +27,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
 --
--- TOC entry 3890 (class 0 OID 0)
+-- TOC entry 3889 (class 0 OID 0)
 -- Dependencies: 2
 -- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
 --
@@ -83,7 +83,7 @@ CREATE SEQUENCE public."auth-token_id_seq"
 
 
 --
--- TOC entry 3891 (class 0 OID 0)
+-- TOC entry 3890 (class 0 OID 0)
 -- Dependencies: 197
 -- Name: auth-token_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
@@ -102,7 +102,8 @@ CREATE TABLE public.client (
     password text NOT NULL,
     "time" timestamp without time zone NOT NULL,
     request json,
-    confirmed boolean NOT NULL
+    confirmed boolean NOT NULL,
+    name text NOT NULL
 );
 
 
@@ -285,19 +286,7 @@ ALTER TABLE ONLY public.client_confirmation
     ADD CONSTRAINT "confirmation-client_ref" FOREIGN KEY (client) REFERENCES public.client(id) ON DELETE CASCADE;
 
 
---
--- TOC entry 3889 (class 0 OID 0)
--- Dependencies: 4
--- Name: SCHEMA public; Type: ACL; Schema: -; Owner: -
---
-
-REVOKE ALL ON SCHEMA public FROM rdsadmin;
-REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT ALL ON SCHEMA public TO postgres;
-GRANT ALL ON SCHEMA public TO PUBLIC;
-
-
--- Completed on 2020-06-18 21:47:27
+-- Completed on 2020-06-19 01:40:21
 
 --
 -- PostgreSQL database dump complete
