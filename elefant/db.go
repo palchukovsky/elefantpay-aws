@@ -49,11 +49,15 @@ type DBTrans interface {
 		id AccountID, client ClientID, fromRevision int64) (Account, error)
 }
 
+var dbName string     // set by builder
+var dbUser string     // set by builder
+var dbPassword string // set by builder
+
 // NewDB creates new database connection.
 func NewDB() (DB, error) {
 	host := "elefantpay.cwcrd2plajnf.eu-central-1.rds.amazonaws.com"
 	dns := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=verify-full",
-		"postgres", "vR1RNU&SxnY6H0H3OvR1GKQPOexB2rBZpcOV", host, "elefantpay")
+		dbUser, dbPassword, host, dbName)
 
 	result := &db{}
 	var err error

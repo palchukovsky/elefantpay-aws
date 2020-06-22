@@ -30,8 +30,14 @@ GOLANGCI_VER := 1.27.0
 
 ifeq (${VER}, dev)
  	LOG_SERVICE := ${PAPERTRAIL_DEV}
+	DB_NAME := ${DB_NAME_DEV}
+	DB_USER := ${DB_USER_DEV}
+	DB_PASS := ${DB_PASS_DEV}
 else
 	LOG_SERVICE := ${PAPERTRAIL_PROD}
+	DB_NAME := ${DB_NAME_PROD}
+	DB_USER := ${DB_USER_PROD}
+	DB_PASS := ${DB_PASS_PROD}
 endif
 
 WORKDIR := /go/src/${CODE_REPO}
@@ -47,7 +53,10 @@ LAMBDA_LFFLAGS := \
 	-X '${CODE_REPO}/elefant.EmailFromAddress=${EMAIL}' \
 	-X '${CODE_REPO}/elefant.SendGridAPIKey=${SENDGRID_API_KEY}' \
 	-X '${CODE_REPO}/elefant.Version=${VER}' \
-	-X '${CODE_REPO}/elefant.logService=${LOG_SERVICE}'
+	-X '${CODE_REPO}/elefant.logService=${LOG_SERVICE}' \
+	-X '${CODE_REPO}/elefant.dbName=${DB_NAME}' \
+	-X '${CODE_REPO}/elefant.dbUser=${DB_USER}' \
+	-X '${CODE_REPO}/elefant.dbPassword=${DB_PASS}'
 
 IMAGE_TAG_BUILDER_GOLANG := ${IMAGES_REPO}${PRODUCT}.golang:${GO_VER}-${NODE_OS_NAME}${NODE_OS_TAG}
 IMAGE_TAG_BUILDER_BUILDER := ${IMAGES_REPO}${PRODUCT}.builder:${IMAGE_TAG}

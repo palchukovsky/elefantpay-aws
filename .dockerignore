@@ -3,3 +3,4 @@ mock
 bin
 coverage.txt
 .env.template
+elefant/db.sql
