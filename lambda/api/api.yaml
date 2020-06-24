@@ -1,0 +1,870 @@
+openapi: 3.0.0
+info:
+  title: ElefantPay
+  description: ElefantPay Backend API.
+  version: "1.0"
+servers:
+- url: https://api-dev.elefantpay.com
+  description: ElefantPay Backend API developemnt server.
+- url: https://api.elefantpay.com
+  description: ElefantPay Backend API production server.
+paths:
+  /client:
+    post:
+      tags:
+      - Client
+      summary: Creates a new client record.
+      operationId: ClientCreate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientRegistration'
+        required: true
+      responses:
+        "201":
+          description: The client record has successfully created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialsConfirmationRequest'
+        "400":
+          description: The request has invalid parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "409":
+          description: Provided credentials already used for another client.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags:
+      - Client
+      summary: Updates current client information and settings.
+      operationId: ClientUpdate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientSettings'
+        required: true
+      responses:
+        "200":
+          description: The client has updated.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "403":
+          description: Request forbidden with provided credentials.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - bearer: []
+  /client/credentials:
+    put:
+      tags:
+      - Client
+      summary: Restores access to the client.
+      operationId: ClientRestore
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialsConfirmationRequest'
+        required: true
+      responses:
+        "202":
+          description: The restoration process has started. Check the provided delivery
+            method to continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientInfo'
+        "400":
+          description: The request has invalid parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Provided credentials are not used for any client.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /client/credentials/confirmation:
+    put:
+      tags:
+      - Client
+      summary: Request confirmation ticket resend.
+      operationId: ClientConfirmResend
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientEmail'
+        required: true
+      responses:
+        "202":
+          description: The request process has started. Check the provided delivery
+            method to continue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "400":
+          description: The request has invalid parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Provided credentials are not used for any client.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "409":
+          description: The client already is confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "425":
+          description: The request is too early after the previous one.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+      - Client
+      summary: Confirms client credentials.
+      operationId: ClientConfirm
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialsConfirmation'
+        required: true
+      responses:
+        "200":
+          description: Client credentials have been confirmed. The client session
+            has created.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "400":
+          description: The request has invalid parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        "404":
+          description: Failed to find credentials to confirm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /client/login:
+    post:
+      tags:
+      - Session
+      summary: Creates a new client session.
+      description: Returns token in the response header for resources access which
+        is bound with provided credentials.
+      operationId: ClientLogin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientCredentials'
+        required: true
+      responses:
+        "201":
+          description: The client session has successfully created.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientInfo'
+        "404":
+          description: Provided credentials are not used for any client or secret
+            is wrong.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "422":
+          description: The client is existing, but credentials are not confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialsConfirmationRequest'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+      - Session
+      summary: Destroys current client session.
+      operationId: ClientLogout
+      responses:
+        "200":
+          description: The client session has successfully destroyed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "403":
+          description: Request forbidden with provided credentials.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - bearer: []
+  /account:
+    get:
+      tags:
+      - Account
+      summary: Returns list of available accounts.
+      operationId: AccountList
+      responses:
+        "200":
+          description: List of accounts.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountInfoDict'
+        "403":
+          description: Request forbidden with provided credentials.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - bearer: []
+  /account/{accountId}:
+    get:
+      tags:
+      - Account
+      summary: Returns detailed information about the account and last account actions.
+      operationId: AccountInfo
+      parameters:
+      - name: accountId
+        in: path
+        description: Account ID.
+        required: true
+        style: simple
+        explode: false
+        schema:
+          $ref: '#/components/schemas/AccountId'
+      - name: from
+        in: query
+        description: Last known update revision. The result will be provided only
+          if the account has updated since this revision.
+        required: true
+        style: form
+        explode: true
+        schema:
+          $ref: '#/components/schemas/Revision'
+      responses:
+        "200":
+          description: Account details.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDetails'
+        "204":
+          description: The account does not have updates or the account with such
+            ID is not existent.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+        "403":
+          description: Request forbidden with provided credentials.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - bearer: []
+    post:
+      tags:
+      - Account
+      summary: Updates account balance by funds depositing.
+      operationId: AccountBalance
+      parameters:
+      - name: accountId
+        in: path
+        description: Account ID.
+        required: true
+        style: simple
+        explode: false
+        schema:
+          $ref: '#/components/schemas/AccountId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddMoneyAction'
+        required: true
+      responses:
+        "200":
+          description: Action successfully executed.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "202":
+          description: Action accepted for execution, but not executed yet, and there
+            is no guarantee that it will be executed successfully.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "403":
+          description: Request forbidden with provided credentials.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "404":
+          description: Account ID is invalid.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - bearer: []
+  /account/{accountId}/history:
+    get:
+      tags:
+      - Account
+      summary: Returns account history for the period.
+      operationId: AccountHistory
+      parameters:
+      - name: accountId
+        in: path
+        description: Account ID.
+        required: true
+        style: simple
+        explode: false
+        schema:
+          $ref: '#/components/schemas/AccountId'
+      - name: before
+        in: query
+        description: The timestamp of the previous record. Will be returned list of
+          actions before this timestamp.
+        required: true
+        style: form
+        explode: true
+        schema:
+          $ref: '#/components/schemas/Revision'
+      responses:
+        "200":
+          description: All available history actions have returned.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountActionListReversed'
+        "206":
+          description: Some history action returned, but there are more actions in
+            the list. New requests required to receive the full list.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountActionListReversed'
+        "403":
+          description: Request forbidden with provided credentials.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - bearer: []
+  /account/{accountId}/payment:
+    post:
+      tags:
+      - Payment
+      summary: Processes a payment.
+      operationId: AccountPayment
+      parameters:
+      - name: accountId
+        in: path
+        description: Account ID.
+        required: true
+        style: simple
+        explode: false
+        schema:
+          $ref: '#/components/schemas/AccountId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentOrder'
+        required: true
+      responses:
+        "202":
+          description: Payment accepted for execution, but not executed yet, and there
+            is no guarantee that it will be executed successfully.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "403":
+          description: Request forbidden with provided credentials.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        default:
+          description: Unexpected error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security:
+      - bearer: []
+components:
+  schemas:
+    Empty:
+      type: object
+    Error:
+      properties:
+        message:
+          type: string
+          description: Error short description.
+    Revision:
+      type: integer
+    Timestamp:
+      type: integer
+    AuthToken:
+      type: string
+      format: uuid
+    Currency:
+      type: string
+      format: currency
+      example: EUR
+    ClientEmail:
+      required:
+      - email
+      properties:
+        email:
+          minLength: 6
+          type: string
+          format: email
+    ClientCredentials:
+      required:
+      - email
+      - password
+      properties:
+        email:
+          minLength: 6
+          type: string
+          format: email
+        password:
+          maxLength: 256
+          minLength: 4
+          type: string
+          format: password
+    ClientRegistration:
+      required:
+      - email
+      - name
+      - password
+      properties:
+        name:
+          minLength: 1
+          type: string
+        email:
+          minLength: 6
+          type: string
+          format: email
+        password:
+          maxLength: 256
+          minLength: 4
+          type: string
+          format: password
+    ClientInfo:
+      required:
+      - email
+      - name
+      - password
+      properties:
+        name:
+          minLength: 1
+          type: string
+        email:
+          minLength: 6
+          type: string
+          format: email
+    ClientSettings:
+      type: object
+    ConfirmationId:
+      type: string
+      format: uuid
+    CredentialsConfirmationRequest:
+      required:
+      - confirmation
+      properties:
+        confirmation:
+          $ref: '#/components/schemas/ConfirmationId'
+    CredentialsConfirmation:
+      required:
+      - id
+      - token
+      properties:
+        id:
+          $ref: '#/components/schemas/ConfirmationId'
+        token:
+          type: string
+    AccountId:
+      type: string
+      format: uuid
+    AccountInfo:
+      required:
+      - currency
+      properties:
+        currency:
+          $ref: '#/components/schemas/Currency'
+    AccountInfoDict:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/AccountInfo'
+      description: Provides an account information dictionary where the key is an
+        account UUID.
+      format: uuid
+    AccountDetails:
+      required:
+      - balance
+      - currency
+      - history
+      - id
+      - revision
+      properties:
+        currency:
+          $ref: '#/components/schemas/Currency'
+        balance:
+          type: number
+          description: Actual account balance.
+          format: double
+        revision:
+          $ref: '#/components/schemas/Revision'
+        history:
+          $ref: '#/components/schemas/AccountActionListReversed'
+    AccountActionListReversed:
+      type: array
+      description: Account action list in reverse order (the newest action first).
+      items:
+        $ref: '#/components/schemas/AccountAction'
+    AccountAction:
+      required:
+      - state
+      - subject
+      - time
+      - value
+      properties:
+        time:
+          $ref: '#/components/schemas/Timestamp'
+        value:
+          type: number
+          format: double
+        subject:
+          type: string
+        state:
+          type: string
+          enum:
+          - accepted
+          - progress
+          - fail
+          - success
+        notes:
+          type: string
+    BankCard:
+      required:
+      - cvc
+      - number
+      - validThruMonth
+      - validThruYear
+      properties:
+        number:
+          maxLength: 14
+          minLength: 16
+          type: integer
+          example: 4111111111111111
+        validThruMonth:
+          maximum: 12
+          minimum: 1
+          maxLength: 2
+          minLength: 1
+          type: integer
+          example: 11
+        validThruYear:
+          maximum: 99
+          minimum: 0
+          maxLength: 2
+          minLength: 1
+          type: integer
+          example: 25
+        cvc:
+          maxLength: 3
+          minLength: 3
+          type: integer
+          example: 829
+    Cash:
+      type: string
+    BankCardSource:
+      required:
+      - bankCard
+      properties:
+        bankCard:
+          $ref: '#/components/schemas/BankCard'
+    CashSource:
+      required:
+      - cash
+      properties:
+        cash:
+          $ref: '#/components/schemas/Cash'
+    AddMoneyAction:
+      required:
+      - source
+      - value
+      properties:
+        value:
+          type: number
+          format: double
+        source:
+          oneOf:
+          - $ref: '#/components/schemas/BankCardSource'
+          - $ref: '#/components/schemas/CashSource'
+    PaymentOrder:
+      type: object
+  securitySchemes:
+    bearer:
+      type: http
+      description: Auth-token to authorize the current request. Has to be provided
+        in the header "Authorization" for each request which requires authorization.
+        Example is "Bearer 42cb62c8-99a0-11ea-bb37-0242ac130002". The token provided
+        by the previous request response in the header "Auth-Token" has to be used.
+      scheme: bearer
+      bearerFormat: Bearer {auth-token}
