@@ -1,13 +1,13 @@
 openapi: 3.0.0
 info:
-  title: ElefantPay
-  description: ElefantPay Backend API.
+  title: Elefantpay
+  description: Elefantpay Backend API.
   version: "1.0"
 servers:
 - url: https://api-dev.elefantpay.com
-  description: ElefantPay Backend API developemnt server.
+  description: Elefantpay Backend API developemnt server.
 - url: https://api.elefantpay.com
-  description: ElefantPay Backend API production server.
+  description: Elefantpay Backend API production server.
 paths:
   /client:
     post:

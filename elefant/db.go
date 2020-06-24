@@ -10,7 +10,7 @@ import (
 	_ "github.com/lib/pq" // Postgres driver initialization.
 )
 
-// DB describes ElefantPay database interface.
+// DB describes Elefantpay database interface.
 type DB interface {
 	Begin() (DBTrans, error)
 }
