@@ -26,7 +26,9 @@ type DBTrans interface {
 	// and token.
 	CreateClientConfirmation(
 		clientID ClientID, genToken func() string) (ConfirmationID, string, error)
-	ConfirmClient(confirmation ConfirmationID, token string) (*ClientID, error)
+	AcceptClientConfirmation(
+		confirmation ConfirmationID, token string) (*ClientID, error)
+	ConfirmClient(ClientID) (Client, error)
 	FindLastClientConfirmation(
 		clientID ClientID, validPeriod time.Duration) (*ConfirmationID, error)
 	GetClient(ClientID) (Client, error)
@@ -152,7 +154,7 @@ func (t *dbTrans) CreateClientConfirmation(
 	return id, "", err
 }
 
-func (t *dbTrans) ConfirmClient(
+func (t *dbTrans) AcceptClientConfirmation(
 	id ConfirmationID, token string) (*ClientID, error) {
 
 	query := `DELETE FROM client_confirmation
@@ -203,6 +205,18 @@ func (t *dbTrans) GetClient(id ClientID) (Client, error) {
 	err := t.tx.QueryRow(`SELECT email, name FROM client WHERE id = $1`, id).
 		Scan(&email, &name)
 	if err != nil {
+		return nil, err
+	}
+	return newClient(id, email, name), nil
+}
+
+func (t *dbTrans) ConfirmClient(id ClientID) (Client, error) {
+	query := `UPDATE client SET confirmed = true
+		WHERE id = $1
+		RETURNING email, name`
+	var email string
+	var name string
+	if err := t.tx.QueryRow(query, id).Scan(&email, &name); err != nil {
 		return nil, err
 	}
 	return newClient(id, email, name), nil

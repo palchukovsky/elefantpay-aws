@@ -380,10 +380,10 @@ func (lambda *clientConfirmLambda) Run(
 	defer db.Rollback()
 
 	var clientID *elefant.ClientID
-	clientID, err = db.ConfirmClient(confirmID, request.Token)
+	clientID, err = db.AcceptClientConfirmation(confirmID, request.Token)
 	if err != nil {
-		return nil, fmt.Errorf(
-			`failed to confirm client by confirmation "%s": "%v"`, confirmID, err)
+		return nil, fmt.Errorf(`failed to accept client confirmation "%s": "%v"`,
+			confirmID, err)
 	}
 	if clientID == nil {
 		// Has to be committed to complete the process even if no client found.
@@ -396,9 +396,10 @@ func (lambda *clientConfirmLambda) Run(
 	}
 
 	var client elefant.Client
-	client, err = db.GetClient(*clientID)
+	client, err = db.ConfirmClient(*clientID)
 	if err != nil {
-		return nil, fmt.Errorf(`failed to get client "%s": "%v"`, *clientID, err)
+		return nil, fmt.Errorf(`failed to confirm client "%s": "%v"`,
+			*clientID, err)
 	}
 
 	response, err := createAuth(client, db, lambdaRequest, http.StatusOK)
