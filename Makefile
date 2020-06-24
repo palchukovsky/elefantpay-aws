@@ -33,11 +33,13 @@ ifeq (${VER}, dev)
 	DB_NAME := ${DB_NAME_DEV}
 	DB_USER := ${DB_USER_DEV}
 	DB_PASS := ${DB_PASS_DEV}
+	LAMBDA_PREFIX := ${AWS_PRODUCT}_${VER}_
 else
 	LOG_SERVICE := ${PAPERTRAIL_PROD}
 	DB_NAME := ${DB_NAME_PROD}
 	DB_USER := ${DB_USER_PROD}
 	DB_PASS := ${DB_PASS_PROD}
+	LAMBDA_PREFIX := ${AWS_PRODUCT}_prod_
 endif
 
 WORKDIR := /go/src/${CODE_REPO}
@@ -46,8 +48,6 @@ IMAGE_TAG := $(subst /,_,${TAG})
 COMMA := ,
 API_LAMBDA_PREFIX := API_
 VER_DOMAIN := -dev.${DOMAIN}
-
-LAMBDA_PREFIX := ${AWS_PRODUCT}_${VER}_
 LAMBDA_LFFLAGS := \
 	-X '${CODE_REPO}/elefant.EmailFromName=${NAME}' \
 	-X '${CODE_REPO}/elefant.EmailFromAddress=${EMAIL}' \
