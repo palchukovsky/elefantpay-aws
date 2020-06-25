@@ -221,14 +221,14 @@ func (lambda *clientCreateLambda) createClient(
 		return nil, nil, nil
 	}
 
-	var account elefant.Account
-	account, err = db.CreateAccount(elefant.NewCurrency("EUR"), client.GetID())
+	var acc elefant.Account
+	acc, err = db.CreateAccount(elefant.NewCurrency("EUR"), client.GetID())
 	if err != nil {
 		return nil, nil, fmt.Errorf(`failed to create new account record: "%v"`,
 			err)
 	}
 
-	return client, []elefant.Account{account}, nil
+	return client, []elefant.Account{acc}, nil
 }
 
 ////////////////////////////////////////////////////////////////////////////////

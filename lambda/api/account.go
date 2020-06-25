@@ -73,11 +73,6 @@ func (*accountInfoLambda) CreateRequest() interface{} { return nil }
 
 func (lambda *accountInfoLambda) Run(
 	request LambdaRequest) (*httpResponse, error) {
-	db, err := lambda.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer db.Rollback()
 
 	id, err := request.ReadPathArgAccountID()
 	if err != nil {
@@ -85,28 +80,45 @@ func (lambda *accountInfoLambda) Run(
 	}
 
 	var revision int64
-	revision, err = request.ReadQueryArgInt64("from")
-	if err != nil {
+	if revision, err = request.ReadQueryArgInt64("from"); err != nil {
 		return newHTTPResponseBadParam("from-revision is not provided", fmt.Errorf(
 			`failed to get from-revision: "%v"`, err))
 	}
 
-	var account elefant.Account
-	account, err = db.FindAccountUpdate(id, request.GetClientID(), revision)
+	db, err := lambda.db.Begin()
 	if err != nil {
 		return nil, err
 	}
-	if account == nil {
+	defer db.Rollback()
+
+	var acc elefant.Account
+	acc, err = db.FindAccountUpdate(id, request.GetClientID(), revision)
+	if err != nil {
+		return nil, err
+	}
+	if acc == nil {
 		return newHTTPResponseNoContent()
 	}
 	return newHTTPResponse(http.StatusOK, &accountDetails{
-		Currency: account.GetCurrency().GetISO(),
-		Balance:  account.GetBalance(),
-		Revision: account.GetRevision(),
+		Currency: acc.GetCurrency().GetISO(),
+		Balance:  acc.GetBalance(),
+		Revision: acc.GetRevision(),
 		History:  []interface{}{}})
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+type bankCard struct {
+	Number         int    `json:"number"`
+	ValidThruMonth int    `json:"validThruMonth"`
+	ValidThruYear  int    `json:"validThruYear"`
+	Cvc            string `json:"cvc"`
+}
+
+type addMoneyAction struct {
+	Value  float64  `json:"value"`
+	Source bankCard `json:"source"`
+}
 
 type accountBalanceUpdateLambda struct{ accountLambda }
 
@@ -114,10 +126,56 @@ func (*lambdaFactory) NewAccountBalanceUpdateLambda() lambdaImpl {
 	return &accountBalanceUpdateLambda{accountLambda: newAccountLambda()}
 }
 
-func (*accountBalanceUpdateLambda) CreateRequest() interface{} { return nil }
+func (*accountBalanceUpdateLambda) CreateRequest() interface{} {
+	return &addMoneyAction{}
+}
 
-func (*accountBalanceUpdateLambda) Run(LambdaRequest) (*httpResponse, error) {
-	return newHTTPResponseEmpty(http.StatusNotImplemented)
+func (lambda *accountBalanceUpdateLambda) Run(
+	lambdaRequest LambdaRequest) (*httpResponse, error) {
+
+	accID, err := lambdaRequest.ReadPathArgAccountID()
+	if err != nil {
+		return newHTTPResponseBadParam("account ID has invalid format", err)
+	}
+
+	request := lambdaRequest.GetRequest().(*addMoneyAction)
+	if request.Value <= 0 {
+		return newHTTPResponseBadParam("value must be positive",
+			fmt.Errorf(`value has invalid value "%v"`, request.Value))
+	}
+	card := &elefant.BankCard{
+		Number:         request.Source.Number,
+		ValidThruMonth: request.Source.ValidThruMonth,
+		ValidThruYear:  request.Source.ValidThruYear,
+		Cvc:            request.Source.Cvc}
+
+	db, err := lambda.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Rollback()
+
+	var acc elefant.Account
+	if acc, err = db.GetAccount(accID); err != nil {
+		return nil, err
+	}
+
+	var method elefant.BankCardMethod
+	if method, err = db.GetBankCardMethod(acc, card); err != nil {
+		return nil, err
+	}
+
+	if err := db.StartTrans(acc.GetID(), method, request.Value); err != nil {
+		return nil, err
+	}
+	if err := db.UpdateAccountBalance(acc.GetID(), request.Value); err != nil {
+		return nil, err
+	}
+
+	if err := db.Commit(); err != nil {
+		return nil, err
+	}
+	return newHTTPResponseEmpty(http.StatusAccepted)
 }
 
 ////////////////////////////////////////////////////////////////////////////////

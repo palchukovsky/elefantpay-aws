@@ -46,9 +46,15 @@ type DBTrans interface {
 	RevokeClientAuth(AuthTokenID, ClientID) (bool, error)
 
 	CreateAccount(Currency, ClientID) (Account, error)
+	GetAccount(AccountID) (Account, error)
 	GetClientAccounts(ClientID) ([]Account, error)
 	FindAccountUpdate(
 		id AccountID, client ClientID, fromRevision int64) (Account, error)
+	UpdateAccountBalance(accID AccountID, delta float64) error
+
+	GetBankCardMethod(Account, *BankCard) (BankCardMethod, error)
+
+	StartTrans(accID AccountID, method Method, value float64) error
 }
 
 var dbName string     // set by builder
@@ -134,7 +140,7 @@ func (t *dbTrans) isDuplicateErr(err error) bool {
 
 func (t *dbTrans) CreateClientConfirmation(
 	clientID ClientID, genToken func() string) (ConfirmationID, string, error) {
-	query := `INSERT INTO client_confirmation(id, "time", token, client)
+	query := `INSERT INTO client_confirm(id, "time", token, client)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id`
 	id := newConfirmationID()
@@ -157,7 +163,7 @@ func (t *dbTrans) CreateClientConfirmation(
 func (t *dbTrans) AcceptClientConfirmation(
 	id ConfirmationID, token string) (*ClientID, error) {
 
-	query := `DELETE FROM client_confirmation
+	query := `DELETE FROM client_confirm
 		WHERE time < $1 OR (id = $2 AND token = $3)
 		RETURNING time < $1, client`
 	minTime := time.Now().UTC().Add(-ClientConfirmationCodeLiveTime)
@@ -184,7 +190,7 @@ func (t *dbTrans) AcceptClientConfirmation(
 
 func (t *dbTrans) FindLastClientConfirmation(
 	clientID ClientID, validPeriod time.Duration) (*ConfirmationID, error) {
-	query := `SELECT id FROM client_confirmation
+	query := `SELECT id FROM client_confirm
 		WHERE client = $1 AND time >= $2
 		ORDER BY time DESC
 		LIMIT 1`
@@ -332,7 +338,7 @@ func (t *dbTrans) RevokeClientAuth(
 
 func (t *dbTrans) CreateAccount(
 	currency Currency, client ClientID) (Account, error) {
-	query := `INSERT INTO account(id, client, currency, time, balance, revision)
+	query := `INSERT INTO acc(id, client, currency, time, balance, revision)
 		VALUES($1, $2, $3, $4, $5, $6)`
 	id := newAccountID()
 	balance := .0
@@ -348,9 +354,21 @@ func (t *dbTrans) CreateAccount(
 	return newAccount(id, client, currency, balance, revision), nil
 }
 
+func (t *dbTrans) GetAccount(id AccountID) (Account, error) {
+	query := "SELECT client, currency, balance, revision FROM acc WHERE id = $1"
+	var client ClientID
+	var currency string
+	var balance float64
+	var revision int64
+	err := t.tx.QueryRow(query, id).Scan(&client, &currency, &balance, &revision)
+	if err != nil {
+		return nil, err
+	}
+	return newAccount(id, client, NewCurrency(currency), balance, revision), nil
+}
+
 func (t *dbTrans) GetClientAccounts(client ClientID) ([]Account, error) {
-	query := `SELECT id, currency, balance, revision
-		FROM account WHERE client = $1`
+	query := "SELECT id, currency, balance, revision FROM acc WHERE client = $1"
 	rows, err := t.tx.Query(query, client)
 	if err != nil {
 		return nil, err
@@ -375,7 +393,7 @@ func (t *dbTrans) GetClientAccounts(client ClientID) ([]Account, error) {
 func (t *dbTrans) FindAccountUpdate(
 	id AccountID, client ClientID, revision int64) (Account, error) {
 	query := `SELECT currency, balance, revision
-		FROM account
+		FROM acc
 		WHERE id = $1 AND client = $2 AND revision > $3`
 	var currency string
 	var balance float64
@@ -387,4 +405,60 @@ func (t *dbTrans) FindAccountUpdate(
 		return nil, err
 	}
 	return newAccount(id, client, NewCurrency(currency), balance, revision), nil
+}
+
+func (t *dbTrans) UpdateAccountBalance(accID AccountID, delta float64) error {
+	query := `UPDATE acc
+		SET balance = balance + $2 AND revision = revision + 1
+		WHERE id = $1`
+	result, err := t.tx.Exec(query, accID, delta)
+	if err != nil {
+		return err
+	}
+	if err := t.checkAffectedRows(result); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *dbTrans) GetBankCardMethod(
+	acc Account, card *BankCard) (BankCardMethod, error) {
+
+	query := `INSERT INTO
+			trans(id, client, type, desc, currency, time, key)
+		VALUES($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT
+			DO UPDATE SET type=EXCLUDED.type
+		RETURNING id;`
+	clientID := acc.GetClient()
+	method := newBankCardMethod(newMethodID(), &clientID, acc.GetCurrency(), card)
+	desc, err := json.Marshal(method.GetDesc())
+	if err != nil {
+		return nil, err
+	}
+
+	var id MethodID
+	err = t.tx.QueryRow(
+		query, method.GetID(), acc.GetClient(), 0, desc,
+		acc.GetCurrency(), time.Now().UTC(), method.GetKey()).
+		Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+
+	return newBankCardMethod(id, &clientID, acc.GetCurrency(), card), nil
+}
+
+func (t *dbTrans) StartTrans(
+	accID AccountID, method Method, value float64) error {
+	query := `INSERT INTO trans(method, acc, value, time) VALUES($1, $2, $3, $4)`
+	result, err := t.tx.Exec(
+		query, method.GetID(), accID, value, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if err := t.checkAffectedRows(result); err != nil {
+		return err
+	}
+	return nil
 }
