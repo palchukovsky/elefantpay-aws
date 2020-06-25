@@ -15,7 +15,7 @@ type productLog struct{ writer *syslog.Writer }
 func InitProductLog(project, projectPackage, module string) {
 	writer, err := syslog.Dial("udp", logService,
 		syslog.LOG_EMERG|syslog.LOG_KERN,
-		fmt.Sprintf("%s/%s/%s", project, projectPackage, module))
+		fmt.Sprintf("%s/%s/%s@%s", project, projectPackage, module, Version))
 	if err != nil {
 		log.Panicf(`Failed to dial syslog: "%v".`, err)
 	}
