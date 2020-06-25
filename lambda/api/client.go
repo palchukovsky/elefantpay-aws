@@ -58,21 +58,23 @@ func createAuth(
 	client elefant.Client,
 	db elefant.DBTrans,
 	lambdaRequest LambdaRequest,
-	successStatusCode int) (*httpResponse, error) {
+	successStatusCode int) (*httpResponse, elefant.AuthTokenID, error) {
 
 	httpRequest := *lambdaRequest.GetHTTPRequest()
 	httpRequest.Body = "" // to remove secure info
 
 	token, err := db.CreateAuth(client.GetID(), &httpRequest)
 	if err != nil {
-		return nil, fmt.Errorf(
+		return nil, token, fmt.Errorf(
 			`failed to create client auth_token for client "%s": "%v"`,
 			client.GetID(), err)
 	}
 
-	return newHTTPResponseWithHeaders(successStatusCode,
+	var response *httpResponse
+	response, err = newHTTPResponseWithHeaders(successStatusCode,
 		&clientInfo{Name: client.GetName(), Email: client.GetEmail()},
 		map[string]string{AuthTokenHeaderName: token.String()})
+	return response, token, err
 }
 
 func gen2faCode() string {
@@ -288,7 +290,9 @@ func (lambda *clientLoginLambda) Run(
 	}
 
 	var response *httpResponse
-	response, err = createAuth(client, db, lambdaRequest, http.StatusCreated)
+	var authToken elefant.AuthTokenID
+	response, authToken, err = createAuth(
+		client, db, lambdaRequest, http.StatusCreated)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +300,8 @@ func (lambda *clientLoginLambda) Run(
 		return nil, err
 	}
 
-	elefant.Log.Info(`Created new auth-token for client "%s".`, client.GetID())
+	elefant.Log.Info(`Created new auth-token "%s" for client "%s".`,
+		authToken, client.GetID())
 	return response, err
 }
 
@@ -402,7 +407,8 @@ func (lambda *clientConfirmLambda) Run(
 			*clientID, err)
 	}
 
-	response, err := createAuth(client, db, lambdaRequest, http.StatusOK)
+	response, authToken, err := createAuth(
+		client, db, lambdaRequest, http.StatusOK)
 	if err != nil {
 		return response, err
 	}
@@ -412,7 +418,8 @@ func (lambda *clientConfirmLambda) Run(
 
 	elefant.Log.Info(`Confirmed client "%s" by token "%s".`,
 		clientID, request.Token)
-	elefant.Log.Info(`Created new auth-token for client "%s".`, clientID)
+	elefant.Log.Info(`Created new auth-token "%s" for client "%s".`,
+		authToken, clientID)
 	return response, nil
 }
 

@@ -49,17 +49,25 @@ func getToken(request *request) (*elefant.AuthTokenID, error) {
 	return &result, nil
 }
 
+func newHandleErrorResponse(
+	format string, args ...interface{}) (*response, error) {
+	err := fmt.Errorf(format, args...)
+	elefant.Log.Err(err)
+	return nil, err
+}
+
 func handle(ctx context.Context, request *request) (*response, error) {
 	token, err := getToken(request)
 	if err != nil {
+		// Special return to generate 401.
 		elefant.Log.Error(`Failed to get token: "%v".`, err)
-		return &response{}, errors.New("Unauthorized") // generates 401
+		return &response{}, errors.New("Unauthorized")
 	}
 
 	var tx elefant.DBTrans
 	tx, err = db.Begin()
 	if err != nil {
-		return &response{}, fmt.Errorf(`failed to begin DB-transaction: "%v"`, err)
+		return newHandleErrorResponse(`failed to begin DB-transaction: "%v"`, err)
 	}
 	defer tx.Rollback()
 
@@ -67,17 +75,18 @@ func handle(ctx context.Context, request *request) (*response, error) {
 	var client *elefant.ClientID
 	newToken, client, err = tx.RecreateAuth(*token)
 	if err != nil {
-		return &response{}, fmt.Errorf(`failed to execute DB-request: "%v"`, err)
+		return newHandleErrorResponse(`failed to execute DB-request: "%v"`, err)
 	}
 	if newToken == nil || client == nil {
+		elefant.Log.Debug(`Unknown token "%s".`, *token)
 		return newPolicy("Deny", request.MethodArn), nil
 	}
 	err = tx.Commit()
 	if err != nil {
-		return &response{}, fmt.Errorf(`failed to commit DB-transaction: "%v"`, err)
+		return newHandleErrorResponse(`failed to commit DB-transaction: "%v"`, err)
 	}
 	elefant.Log.Debug(`Auth-token recreated: "%s" -> "%s" for client "%s".`,
-		token, *newToken, *client)
+		*token, *newToken, *client)
 
 	result := newPolicy("Allow", request.MethodArn)
 	result.PrincipalID = client.String()

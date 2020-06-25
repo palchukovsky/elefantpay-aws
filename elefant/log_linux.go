@@ -52,6 +52,9 @@ func (productLog *productLog) Err(err error) {
 	message := fmt.Sprintf("%v", err)
 	if len(message) > 0 {
 		message = strings.ToUpper(string(message[0])) + message[1:]
+		if message[len(message)-1:] != "." {
+			message += "."
+		}
 	}
 	productLog.Error(message)
 }
