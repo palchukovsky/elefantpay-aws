@@ -148,13 +148,13 @@ func (lambda *clientCreateLambda) Run(
 
 	if err := checkmail.ValidateFormat(request.Email); err != nil {
 		return newHTTPResponseBadParam("email has invalid format",
-			fmt.Errorf(`failed to validate email: "%v"`, request.Email))
+			`failed to validate email: "%v"`, request.Email)
 	}
 	if len(request.Password) < 5 {
 		return newHTTPResponseBadParam(
 			"password could not be shorter than 5 symbols",
-			fmt.Errorf(`failed to validate password: too small (%d symbols)`,
-				len(request.Password)))
+			`failed to validate password: too small (%d symbols)`,
+			len(request.Password))
 	}
 
 	httpRequest := *lambdaRequest.GetHTTPRequest()
@@ -174,7 +174,7 @@ func (lambda *clientCreateLambda) Run(
 	}
 	if client == nil {
 		return newHTTPResponseEmptyError(http.StatusConflict,
-			fmt.Errorf(`client email "%s" already is used`, request.Email))
+			`client email "%s" already is used`, request.Email)
 	}
 
 	var confirmationID elefant.ConfirmationID
@@ -260,8 +260,7 @@ func (lambda *clientLoginLambda) Run(
 	}
 	if client == nil {
 		return newHTTPResponseEmptyError(http.StatusNotFound,
-			fmt.Errorf(`wrong client credentials with email "%s" and password`,
-				request.Email))
+			`wrong client credentials with email "%s" and password`, request.Email)
 	}
 	if !isConfirmed {
 		confirmationID, err := db.FindLastClientConfirmation(
@@ -338,8 +337,7 @@ func (lambda *clientLogoutLambda) Run(
 	}
 	if !has {
 		return newHTTPResponseEmptyError(http.StatusNotFound,
-			fmt.Errorf(`no auth-tokens to revoke for client "%s"`,
-				request.GetClientID()))
+			`no auth-tokens to revoke for client "%s"`, request.GetClientID())
 	}
 
 	if err = db.Commit(); err != nil {
@@ -374,7 +372,7 @@ func (lambda *clientConfirmLambda) Run(
 	confirmID, err := elefant.ParseConfirmationID(request.ID)
 	if err != nil {
 		return newHTTPResponseBadParam("confirmation ID is invalid",
-			fmt.Errorf(`failed to parse confirmation ID "%s": "%v"`, request.ID, err))
+			`failed to parse confirmation ID "%s": "%v"`, request.ID, err)
 	}
 
 	var db elefant.DBTrans
@@ -396,8 +394,8 @@ func (lambda *clientConfirmLambda) Run(
 			return nil, err
 		}
 		return newHTTPResponseEmptyError(http.StatusNotFound,
-			fmt.Errorf(`wrong token "%s" provided for confirmation "%s"`,
-				request.Token, request.ID))
+			`wrong token "%s" provided for confirmation "%s"`,
+			request.Token, request.ID)
 	}
 
 	var client elefant.Client
@@ -448,11 +446,11 @@ func (lambda *clientConfirmResendLambda) Run(
 	}
 	if client == nil {
 		return newHTTPResponseEmptyError(http.StatusNotFound,
-			fmt.Errorf(`wrong client credentials with email "%s"`, request.Email))
+			`wrong client credentials with email "%s"`, request.Email)
 	}
 	if isConfirmed {
 		return newHTTPResponseEmptyError(http.StatusConflict,
-			fmt.Errorf(`client "%s" already is confirmed`, client.GetID()))
+			`client "%s" already is confirmed`, client.GetID())
 	}
 
 	prevConfirmID, err := db.FindLastClientConfirmation(
@@ -464,9 +462,8 @@ func (lambda *clientConfirmResendLambda) Run(
 	}
 	if prevConfirmID != nil {
 		return newHTTPResponseEmptyError(http.StatusTooEarly,
-			fmt.Errorf(
-				`early confirmation code request after "%s" for client "%s"`,
-				client.GetID(), *prevConfirmID))
+			`early confirmation code request after "%s" for client "%s"`,
+			client.GetID(), *prevConfirmID)
 	}
 
 	confirmationID, twoFaCode, err := db.CreateClientConfirmation(

@@ -9,7 +9,10 @@ import (
 	"strings"
 )
 
-type productLog struct{ writer *syslog.Writer }
+type productLog struct {
+	writer  *syslog.Writer
+	isPanic bool
+}
 
 // InitProductLog inits global product log.
 func InitProductLog(project, projectPackage, module string) {
@@ -19,10 +22,17 @@ func InitProductLog(project, projectPackage, module string) {
 	if err != nil {
 		log.Panicf(`Failed to dial syslog: "%v".`, err)
 	}
-	Log = &productLog{writer: writer}
+	Log = &productLog{writer: writer, isPanic: false}
 }
 
-func (productLog *productLog) Flush() {}
+func (productLog *productLog) CheckExit() {
+	if productLog.isPanic {
+		return
+	}
+	if err := recover(); err != nil {
+		productLog.Panic(`Panic detected: "%v".`, err)
+	}
+}
 
 func (productLog *productLog) Debug(format string, args ...interface{}) {
 	message := fmt.Sprintf(format, args...)
@@ -59,7 +69,8 @@ func (productLog *productLog) Err(err error) {
 	productLog.Error(message)
 }
 
-func (productLog *productLog) Panicf(format string, args ...interface{}) {
+func (productLog *productLog) Panic(format string, args ...interface{}) {
+	productLog.isPanic = true
 	message := fmt.Sprintf(format, args...)
 	productLog.check(productLog.writer.Emerg(message))
 	log.Panicln(message)

@@ -26,10 +26,10 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 SET default_tablespace = '';
 
 --
--- Name: account; Type: TABLE; Schema: public; Owner: -
+-- Name: acc; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.account (
+CREATE TABLE public.acc (
     id uuid NOT NULL,
     client uuid NOT NULL,
     "time" timestamp without time zone NOT NULL,
@@ -90,15 +90,63 @@ CREATE TABLE public.client (
 
 
 --
--- Name: client_confirmation; Type: TABLE; Schema: public; Owner: -
+-- Name: client_confirm; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.client_confirmation (
+CREATE TABLE public.client_confirm (
     id uuid NOT NULL,
     "time" timestamp without time zone NOT NULL,
     token text NOT NULL,
     client uuid NOT NULL
 );
+
+
+--
+-- Name: method; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.method (
+    id uuid NOT NULL,
+    client uuid,
+    "desc" json NOT NULL,
+    currency character(3) NOT NULL,
+    "time" timestamp without time zone NOT NULL,
+    key text NOT NULL,
+    type smallint NOT NULL
+);
+
+
+--
+-- Name: trans; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.trans (
+    id integer NOT NULL,
+    method uuid NOT NULL,
+    acc uuid NOT NULL,
+    value double precision NOT NULL,
+    "time" timestamp without time zone NOT NULL
+);
+
+
+--
+-- Name: trans_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.trans_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: trans_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.trans_id_seq OWNED BY public.trans.id;
 
 
 --
@@ -109,18 +157,25 @@ ALTER TABLE ONLY public.auth_token ALTER COLUMN id SET DEFAULT nextval('public."
 
 
 --
--- Name: account acc-currency_unq; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: trans id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.account
+ALTER TABLE ONLY public.trans ALTER COLUMN id SET DEFAULT nextval('public.trans_id_seq'::regclass);
+
+
+--
+-- Name: acc acc-currency_unq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acc
     ADD CONSTRAINT "acc-currency_unq" UNIQUE (client, currency);
 
 
 --
--- Name: account account_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: acc account_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.account
+ALTER TABLE ONLY public.acc
     ADD CONSTRAINT account_pkey PRIMARY KEY (id);
 
 
@@ -181,26 +236,57 @@ ALTER TABLE ONLY public.client
 
 
 --
--- Name: client_confirmation confirmation-token_unq; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: client_confirm confirmation-token_unq; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.client_confirmation
+ALTER TABLE ONLY public.client_confirm
     ADD CONSTRAINT "confirmation-token_unq" UNIQUE (client, token);
 
 
 --
--- Name: client_confirmation confirmation_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: client_confirm confirmation_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.client_confirmation
+ALTER TABLE ONLY public.client_confirm
     ADD CONSTRAINT confirmation_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: method method-unique-unq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.method
+    ADD CONSTRAINT "method-unique-unq" UNIQUE (type, client, key, currency);
+
+
+--
+-- Name: method source_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.method
+    ADD CONSTRAINT source_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: trans trans_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trans
+    ADD CONSTRAINT trans_pkey PRIMARY KEY (id);
 
 
 --
 -- Name: acc-client-rev_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX "acc-client-rev_idx" ON public.account USING btree (client, revision);
+CREATE INDEX "acc-client-rev_idx" ON public.acc USING btree (client, revision);
+
+
+--
+-- Name: acc-client_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX "acc-client_idx" ON public.acc USING btree (client, id);
 
 
 --
@@ -221,14 +307,21 @@ CREATE INDEX "client-email-confirmed_idx" ON public.client USING btree (confirme
 -- Name: confirmation-time_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX "confirmation-time_idx" ON public.client_confirmation USING btree ("time");
+CREATE INDEX "confirmation-time_idx" ON public.client_confirm USING btree ("time");
 
 
 --
--- Name: account acc-client_ref; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: trans-acc_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.account
+CREATE INDEX "trans-acc_idx" ON public.trans USING btree (acc, "time");
+
+
+--
+-- Name: acc acc-client_ref; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.acc
     ADD CONSTRAINT "acc-client_ref" FOREIGN KEY (client) REFERENCES public.client(id) ON DELETE CASCADE;
 
 
@@ -241,11 +334,35 @@ ALTER TABLE ONLY public.auth_token
 
 
 --
--- Name: client_confirmation confirmation-client_ref; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: client_confirm confirmation-client_ref; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.client_confirmation
+ALTER TABLE ONLY public.client_confirm
     ADD CONSTRAINT "confirmation-client_ref" FOREIGN KEY (client) REFERENCES public.client(id) ON DELETE CASCADE;
+
+
+--
+-- Name: method source-client_ref; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.method
+    ADD CONSTRAINT "source-client_ref" FOREIGN KEY (client) REFERENCES public.client(id) ON DELETE CASCADE;
+
+
+--
+-- Name: trans trans-acc_ref; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trans
+    ADD CONSTRAINT "trans-acc_ref" FOREIGN KEY (acc) REFERENCES public.acc(id) ON DELETE CASCADE;
+
+
+--
+-- Name: trans trans-method_ref; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.trans
+    ADD CONSTRAINT "trans-method_ref" FOREIGN KEY (method) REFERENCES public.method(id) ON DELETE CASCADE;
 
 
 --

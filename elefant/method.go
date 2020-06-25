@@ -21,10 +21,11 @@ func ParseMethodID(source string) (MethodID, error) {
 // Method describes transaction method.
 type Method interface {
 	GetID() MethodID
-	GetClient() *ClientID
+	GetClientID() *ClientID
 	GetCurrency() Currency
 	GetKey() string
-	GetDesc() interface{}
+	GetName() string
+	GetInfo() interface{}
 }
 
 type method struct {
@@ -37,9 +38,9 @@ func newMethod(id MethodID, client *ClientID, currency Currency) method {
 	return method{id: id, client: client, currency: currency}
 }
 
-func (method *method) GetID() MethodID       { return method.id }
-func (method *method) GetClient() *ClientID  { return method.client }
-func (method *method) GetCurrency() Currency { return method.currency }
+func (method *method) GetID() MethodID        { return method.id }
+func (method *method) GetClientID() *ClientID { return method.client }
+func (method *method) GetCurrency() Currency  { return method.currency }
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -72,8 +73,9 @@ type bankCardMethod struct {
 	card *BankCard
 }
 
+func (method *bankCardMethod) GetName() string      { return "bank card" }
 func (method *bankCardMethod) GetCard() *BankCard   { return method.card }
-func (method *bankCardMethod) GetDesc() interface{} { return method.card }
+func (method *bankCardMethod) GetInfo() interface{} { return method.card }
 func (method *bankCardMethod) GetKey() string {
 	return fmt.Sprintf("|%d|%d|%d|%s|",
 		method.card.Number, method.card.ValidThruMonth,

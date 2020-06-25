@@ -51,15 +51,22 @@ func newHTTPResponseEmpty(statusCode int) (*httpResponse, error) {
 	return newHTTPResponse(statusCode, &struct{}{})
 }
 
-func newHTTPResponseEmptyError(statusCode int, err error) (*httpResponse, error) {
-	elefant.Log.Warn(`Response with error code %d: "%v".`, statusCode, err)
+func newHTTPResponseEmptyError(
+	statusCode int,
+	errFormat string,
+	args ...interface{}) (*httpResponse, error) {
+	elefant.Log.Warn(`Response with error code %d: "%s".`,
+		statusCode, fmt.Sprintf(errFormat, args...))
 	return newHTTPResponseEmpty(statusCode)
 }
 
-func newHTTPResponseBadParam(message string, err error) (*httpResponse, error) {
+func newHTTPResponseBadParam(
+	message string,
+	errFormat string,
+	args ...interface{}) (*httpResponse, error) {
 	statusCode := http.StatusBadRequest
-	elefant.Log.Warn(`Response with error code %d: "%v" (%s).`,
-		statusCode, err, message)
+	elefant.Log.Warn(`Response with error code %d: "%s" (%s).`,
+		statusCode, fmt.Sprintf(errFormat, args...), message)
 	response := &errorResponse{Message: message}
 	if len(response.Message) > 0 {
 		response.Message = strings.ToUpper(string(response.Message[0])) +

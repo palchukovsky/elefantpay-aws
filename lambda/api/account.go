@@ -41,7 +41,7 @@ func (lambda *accountListLambda) Run(
 	}
 	defer db.Rollback()
 	var accounts []elefant.Account
-	accounts, err = db.GetClientAccounts(request.GetClientID())
+	accounts, err = db.GetAccounts(request.GetClientID())
 	if err != nil {
 		return nil, err
 	}
@@ -76,13 +76,13 @@ func (lambda *accountInfoLambda) Run(
 
 	id, err := request.ReadPathArgAccountID()
 	if err != nil {
-		return newHTTPResponseBadParam("account ID has invalid format", err)
+		return newHTTPResponseBadParam("account ID has invalid format", "%v", err)
 	}
 
 	var revision int64
 	if revision, err = request.ReadQueryArgInt64("from"); err != nil {
-		return newHTTPResponseBadParam("from-revision is not provided", fmt.Errorf(
-			`failed to get from-revision: "%v"`, err))
+		return newHTTPResponseBadParam("from-revision is not provided",
+			`failed to get from-revision: "%v"`, err)
 	}
 
 	db, err := lambda.db.Begin()
@@ -135,13 +135,14 @@ func (lambda *accountBalanceUpdateLambda) Run(
 
 	accID, err := lambdaRequest.ReadPathArgAccountID()
 	if err != nil {
-		return newHTTPResponseBadParam("account ID has invalid format", err)
+		return newHTTPResponseBadParam("account ID has invalid format", "%v", err)
 	}
+	clientID := lambdaRequest.GetClientID()
 
 	request := lambdaRequest.GetRequest().(*addMoneyAction)
 	if request.Value <= 0 {
 		return newHTTPResponseBadParam("value must be positive",
-			fmt.Errorf(`value has invalid value "%v"`, request.Value))
+			`value has invalid value "%v"`, request.Value)
 	}
 	card := &elefant.BankCard{
 		Number:         request.Source.Number,
@@ -156,8 +157,15 @@ func (lambda *accountBalanceUpdateLambda) Run(
 	defer db.Rollback()
 
 	var acc elefant.Account
-	if acc, err = db.GetAccount(accID); err != nil {
-		return nil, err
+	acc, err = db.UpdateAccountBalance(accID, clientID, request.Value)
+	if err != nil {
+		return nil, fmt.Errorf(
+			`failed to update account "%s" balance for client "%s" with delta %f: "%v"`,
+			accID, clientID, request.Value, err)
+	}
+	if acc == nil {
+		return newHTTPResponseEmptyError(http.StatusNotFound,
+			`client "%s" does not have account "%s"`, clientID, accID)
 	}
 
 	var method elefant.BankCardMethod
@@ -165,16 +173,17 @@ func (lambda *accountBalanceUpdateLambda) Run(
 		return nil, err
 	}
 
-	if err := db.StartTrans(acc.GetID(), method, request.Value); err != nil {
-		return nil, err
-	}
-	if err := db.UpdateAccountBalance(acc.GetID(), request.Value); err != nil {
+	var id elefant.TransID
+	if id, err = db.StartTrans(acc.GetID(), method, request.Value); err != nil {
 		return nil, err
 	}
 
 	if err := db.Commit(); err != nil {
 		return nil, err
 	}
+	elefant.Log.Info(`Started trans "%d": "%s"(%s) -> %f -> "%s"/"%s".`,
+		id, method.GetID(), method.GetName(), request.Value,
+		acc.GetClientID(), acc.GetID())
 	return newHTTPResponseEmpty(http.StatusAccepted)
 }
 

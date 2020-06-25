@@ -97,20 +97,20 @@ func handle(ctx context.Context, request *request) (*response, error) {
 
 func main() {
 	elefant.InitProductLog("backend", "api", "Authorizer")
-	defer elefant.Log.Flush()
+	defer elefant.Log.CheckExit()
 
 	rand.Seed(time.Now().UnixNano())
 
 	var err error
 	db, err = elefant.NewDB()
 	if err != nil {
-		elefant.Log.Panicf(`Failed to init DB: "%v".`, err)
+		elefant.Log.Panic(`Failed to init DB: "%v".`, err)
 	}
 
 	tokenRegexp, err = regexp.Compile(
 		`^Bearer (\b[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-\b[0-9a-fA-F]{12}\b)$`)
 	if err != nil {
-		elefant.Log.Panicf(`Failed to compile token-regexp: "%v".`, err)
+		elefant.Log.Panic(`Failed to compile token-regexp: "%v".`, err)
 	}
 
 	aws.Start(handle)

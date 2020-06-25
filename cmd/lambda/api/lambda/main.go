@@ -13,7 +13,7 @@ var lambda api.Lambda
 
 func init() {
 	elefant.InitProductLog("backend", "api", lambdaName)
-	defer elefant.Log.Flush()
+	defer elefant.Log.CheckExit()
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -21,6 +21,6 @@ func init() {
 }
 
 func main() {
-	defer elefant.Log.Flush()
+	defer elefant.Log.CheckExit()
 	lambda.Start()
 }

@@ -15,7 +15,7 @@ func InitProductLog(project, projectPackage, module string) {
 	Log = &productLog{}
 }
 
-func (productLog *productLog) Flush() {}
+func (productLog *productLog) CheckExit() {}
 
 func (productLog *productLog) Debug(format string, args ...interface{}) {
 	log.Printf("Debug: "+format+"\n", args...)
@@ -41,6 +41,6 @@ func (productLog *productLog) Err(err error) {
 	productLog.Error(message)
 }
 
-func (productLog *productLog) Panicf(format string, args ...interface{}) {
+func (productLog *productLog) Panic(format string, args ...interface{}) {
 	log.Panicln(fmt.Sprintf(format, args...))
 }

@@ -46,15 +46,15 @@ type DBTrans interface {
 	RevokeClientAuth(AuthTokenID, ClientID) (bool, error)
 
 	CreateAccount(Currency, ClientID) (Account, error)
-	GetAccount(AccountID) (Account, error)
-	GetClientAccounts(ClientID) ([]Account, error)
+	GetAccounts(ClientID) ([]Account, error)
 	FindAccountUpdate(
 		id AccountID, client ClientID, fromRevision int64) (Account, error)
-	UpdateAccountBalance(accID AccountID, delta float64) error
+	UpdateAccountBalance(
+		accID AccountID, clientID ClientID, delta float64) (Account, error)
 
 	GetBankCardMethod(Account, *BankCard) (BankCardMethod, error)
 
-	StartTrans(accID AccountID, method Method, value float64) error
+	StartTrans(accID AccountID, method Method, value float64) (TransID, error)
 }
 
 var dbName string     // set by builder
@@ -115,7 +115,7 @@ func (t *dbTrans) Rollback() {
 	if err := t.tx.Rollback(); err != nil {
 		// There is no way to restore application state at error at rollback, the
 		// behavior is undefined, so the application must be stopped.
-		Log.Panicf(`Failed to commit database transaction: "%s".`, err)
+		Log.Panic(`Failed to commit database transaction: "%s".`, err)
 	}
 	t.tx = nil
 }
@@ -354,20 +354,7 @@ func (t *dbTrans) CreateAccount(
 	return newAccount(id, client, currency, balance, revision), nil
 }
 
-func (t *dbTrans) GetAccount(id AccountID) (Account, error) {
-	query := "SELECT client, currency, balance, revision FROM acc WHERE id = $1"
-	var client ClientID
-	var currency string
-	var balance float64
-	var revision int64
-	err := t.tx.QueryRow(query, id).Scan(&client, &currency, &balance, &revision)
-	if err != nil {
-		return nil, err
-	}
-	return newAccount(id, client, NewCurrency(currency), balance, revision), nil
-}
-
-func (t *dbTrans) GetClientAccounts(client ClientID) ([]Account, error) {
+func (t *dbTrans) GetAccounts(client ClientID) ([]Account, error) {
 	query := "SELECT id, currency, balance, revision FROM acc WHERE client = $1"
 	rows, err := t.tx.Query(query, client)
 	if err != nil {
@@ -407,40 +394,44 @@ func (t *dbTrans) FindAccountUpdate(
 	return newAccount(id, client, NewCurrency(currency), balance, revision), nil
 }
 
-func (t *dbTrans) UpdateAccountBalance(accID AccountID, delta float64) error {
+func (t *dbTrans) UpdateAccountBalance(
+	id AccountID, clientID ClientID, delta float64) (Account, error) {
 	query := `UPDATE acc
-		SET balance = balance + $2 AND revision = revision + 1
-		WHERE id = $1`
-	result, err := t.tx.Exec(query, accID, delta)
-	if err != nil {
-		return err
+		SET balance = balance + $3, revision = revision + 1
+		WHERE client = $2 AND id = $1
+		RETURNING currency, balance, revision`
+	var currency string
+	var balance float64
+	var revision int64
+	switch err := t.tx.QueryRow(query, id, clientID, delta).
+		Scan(&currency, &balance, &revision); {
+	case err == sql.ErrNoRows:
+		return nil, nil
+	case err != nil:
+		return nil, err
 	}
-	if err := t.checkAffectedRows(result); err != nil {
-		return err
-	}
-	return nil
+	return newAccount(id, clientID, NewCurrency(currency), balance, revision), nil
 }
 
 func (t *dbTrans) GetBankCardMethod(
 	acc Account, card *BankCard) (BankCardMethod, error) {
 
-	query := `INSERT INTO
-			trans(id, client, type, desc, currency, time, key)
+	query := `INSERT INTO method(id, client, type, info, currency, time, key)
 		VALUES($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT
+		ON CONFLICT ON CONSTRAINT "method-unique-unq"
 			DO UPDATE SET type=EXCLUDED.type
 		RETURNING id;`
-	clientID := acc.GetClient()
+	clientID := acc.GetClientID()
 	method := newBankCardMethod(newMethodID(), &clientID, acc.GetCurrency(), card)
-	desc, err := json.Marshal(method.GetDesc())
+	info, err := json.Marshal(method.GetInfo())
 	if err != nil {
 		return nil, err
 	}
 
 	var id MethodID
 	err = t.tx.QueryRow(
-		query, method.GetID(), acc.GetClient(), 0, desc,
-		acc.GetCurrency(), time.Now().UTC(), method.GetKey()).
+		query, method.GetID(), acc.GetClientID(), 0, info,
+		acc.GetCurrency().GetISO(), time.Now().UTC(), method.GetKey()).
 		Scan(&id)
 	if err != nil {
 		return nil, err
@@ -450,15 +441,11 @@ func (t *dbTrans) GetBankCardMethod(
 }
 
 func (t *dbTrans) StartTrans(
-	accID AccountID, method Method, value float64) error {
-	query := `INSERT INTO trans(method, acc, value, time) VALUES($1, $2, $3, $4)`
-	result, err := t.tx.Exec(
-		query, method.GetID(), accID, value, time.Now().UTC())
-	if err != nil {
-		return err
-	}
-	if err := t.checkAffectedRows(result); err != nil {
-		return err
-	}
-	return nil
+	accID AccountID, method Method, value float64) (TransID, error) {
+	query := `INSERT INTO trans(method, acc, value, time)
+		VALUES($1, $2, $3, $4)
+		RETURNING id`
+	now := time.Now().UTC()
+	var id TransID
+	return id, t.tx.QueryRow(query, method.GetID(), accID, value, now).Scan(&id)
 }

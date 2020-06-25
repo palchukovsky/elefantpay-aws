@@ -17,7 +17,7 @@ func ParseAccountID(source string) (AccountID, error) {
 // Account describes account.
 type Account interface {
 	GetID() AccountID
-	GetClient() ClientID
+	GetClientID() ClientID
 	GetCurrency() Currency
 	GetBalance() float64
 	GetRevision() int64
@@ -43,7 +43,7 @@ type account struct {
 }
 
 func (account *account) GetID() AccountID      { return account.id }
-func (account *account) GetClient() ClientID   { return account.client }
+func (account *account) GetClientID() ClientID { return account.client }
 func (account *account) GetCurrency() Currency { return account.currency }
 func (account *account) GetBalance() float64   { return account.balance }
 func (account *account) GetRevision() int64    { return account.revision }

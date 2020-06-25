@@ -16,14 +16,14 @@ var db elefant.DB
 
 func init() {
 	elefant.InitProductLog("backend", "test", "Test")
-	defer elefant.Log.Flush()
+	defer elefant.Log.CheckExit()
 
 	rand.Seed(time.Now().UnixNano())
 
 	var err error
 	db, err = elefant.NewDB()
 	if err != nil {
-		elefant.Log.Panicf(`Failed to init DB: "%v".`, err)
+		elefant.Log.Panic(`Failed to init DB: "%v".`, err)
 	}
 }
 
@@ -37,6 +37,6 @@ func handle(*request) (*response, error) {
 }
 
 func main() {
-	defer elefant.Log.Flush()
+	defer elefant.Log.CheckExit()
 	aws.Start(handle)
 }

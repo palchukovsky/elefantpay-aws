@@ -5,7 +5,7 @@ var Log ProductLog
 
 // ProductLog describes product log interface.
 type ProductLog interface {
-	Flush()
+	CheckExit()
 
 	Debug(format string, args ...interface{})
 
@@ -16,7 +16,7 @@ type ProductLog interface {
 	Error(format string, args ...interface{})
 	Err(err error)
 
-	Panicf(format string, args ...interface{})
+	Panic(format string, args ...interface{})
 }
 
 var logService string // set by builder
