@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/palchukovsky/elefantpay-aws/elefant"
 )
@@ -63,10 +64,18 @@ func (*lambdaFactory) NewAccountInfoLambda() lambdaImpl {
 }
 
 type accountDetails struct {
-	Currency string        `json:"currency"`
-	Balance  float64       `json:"balance"`
-	Revision int64         `json:"revision"`
-	History  []interface{} `json:"history"`
+	Currency string           `json:"currency"`
+	Balance  float64          `json:"balance"`
+	Revision int64            `json:"revision"`
+	History  []*accountAction `json:"history"`
+}
+
+type accountAction struct {
+	Time    time.Time `json:"time"`
+	Value   float64   `json:"value"`
+	Subject string    `json:"subject"`
+	State   string    `json:"state"`
+	Notes   string    `json:"notes"`
 }
 
 func (*accountInfoLambda) CreateRequest() interface{} { return nil }
@@ -92,18 +101,30 @@ func (lambda *accountInfoLambda) Run(
 	defer db.Rollback()
 
 	var acc elefant.Account
-	acc, err = db.FindAccountUpdate(id, request.GetClientID(), revision)
+	var trans []*elefant.Trans
+	acc, trans, err = db.FindAccountUpdate(id, request.GetClientID(), revision)
 	if err != nil {
 		return nil, err
 	}
 	if acc == nil {
 		return newHTTPResponseNoContent()
 	}
+
+	history := make([]*accountAction, len(trans))
+	for i := 0; i < len(trans); i++ {
+		t := trans[i]
+		history[i] = &accountAction{
+			Time:    t.Time,
+			Value:   t.Value,
+			Subject: fmt.Sprintf("deposit by card %s", t.Method.GetName()),
+			State:   "success"}
+	}
+
 	return newHTTPResponse(http.StatusOK, &accountDetails{
 		Currency: acc.GetCurrency().GetISO(),
 		Balance:  acc.GetBalance(),
 		Revision: acc.GetRevision(),
-		History:  []interface{}{}})
+		History:  history})
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -182,7 +203,7 @@ func (lambda *accountBalanceUpdateLambda) Run(
 		return nil, err
 	}
 	elefant.Log.Info(`Started trans "%d": "%s"(%s) -> %f -> "%s"/"%s".`,
-		id, method.GetID(), method.GetName(), request.Value,
+		id, method.GetID(), method.GetTypeName(), request.Value,
 		acc.GetClientID(), acc.GetID())
 	return newHTTPResponseEmpty(http.StatusAccepted)
 }

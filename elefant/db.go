@@ -48,7 +48,7 @@ type DBTrans interface {
 	CreateAccount(Currency, ClientID) (Account, error)
 	GetAccounts(ClientID) ([]Account, error)
 	FindAccountUpdate(
-		id AccountID, client ClientID, fromRevision int64) (Account, error)
+		id AccountID, client ClientID, fromRevision int64) (Account, []*Trans, error)
 	UpdateAccountBalance(
 		accID AccountID, clientID ClientID, delta float64) (Account, error)
 
@@ -378,20 +378,62 @@ func (t *dbTrans) GetAccounts(client ClientID) ([]Account, error) {
 }
 
 func (t *dbTrans) FindAccountUpdate(
-	id AccountID, client ClientID, revision int64) (Account, error) {
-	query := `SELECT currency, balance, revision
+	id AccountID, client ClientID, revision int64) (Account, []*Trans, error) {
+
+	query := `SELECT
+			acc.currency, acc.balance, acc.revision,
+				trans.id, trans.value, trans.time,
+				method.id, method.info, method.type, method.currency
 		FROM acc
-		WHERE id = $1 AND client = $2 AND revision > $3`
-	var currency string
-	var balance float64
-	switch err := t.tx.QueryRow(query, id, client, revision).
-		Scan(&currency, &balance, &revision); {
-	case err == sql.ErrNoRows:
-		return nil, nil
-	case err != nil:
-		return nil, err
+		RIGHT JOIN trans ON trans.acc = acc.id
+		LEFT JOIN method ON method.id = trans.method
+		WHERE acc.id = $1 AND acc.client = $2 AND acc.revision > $3
+		ORDER BY trans.time DESC
+		LIMIT 5`
+	rows, err := t.tx.Query(query, id, client, revision)
+	if err != nil {
+		return nil, nil, err
 	}
-	return newAccount(id, client, NewCurrency(currency), balance, revision), nil
+	defer rows.Close()
+
+	var account Account
+	trans := []*Trans{}
+	for rows.Next() {
+
+		var currency string
+		var balance float64
+		var transID TransID
+		var transValue float64
+		var transTime time.Time
+		var methodID MethodID
+		var methodInfo string
+		var methodType MethodType
+		var methodCurrency string
+		err := rows.Scan(&currency, &balance, &revision,
+			&transID, &transValue, &transTime,
+			&methodID, &methodInfo, &methodType, &methodCurrency)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		method, err := newMethodByType(methodType, methodID, &client,
+			NewCurrency(methodCurrency), func(result interface{}) error {
+				return json.Unmarshal([]byte(methodInfo), result)
+			})
+		if err != nil {
+			return nil, nil, fmt.Errorf(`failed to create method "%v" instance: "%v"`,
+				methodID, err)
+		}
+
+		if account == nil {
+			account = newAccount(id, client, NewCurrency(currency), balance, revision)
+		}
+		trans = append(trans,
+			newTrans(transID, transValue, transTime, method, account))
+
+	}
+
+	return account, trans, nil
 }
 
 func (t *dbTrans) UpdateAccountBalance(
@@ -430,7 +472,7 @@ func (t *dbTrans) GetBankCardMethod(
 
 	var id MethodID
 	err = t.tx.QueryRow(
-		query, method.GetID(), acc.GetClientID(), 0, info,
+		query, method.GetID(), acc.GetClientID(), method.GetType(), info,
 		acc.GetCurrency().GetISO(), time.Now().UTC(), method.GetKey()).
 		Scan(&id)
 	if err != nil {
