@@ -108,7 +108,7 @@ CREATE TABLE public.client_confirm (
 CREATE TABLE public.method (
     id uuid NOT NULL,
     client uuid,
-    "desc" json NOT NULL,
+    info json NOT NULL,
     currency character(3) NOT NULL,
     "time" timestamp without time zone NOT NULL,
     key text NOT NULL,
@@ -121,7 +121,7 @@ CREATE TABLE public.method (
 --
 
 CREATE TABLE public.trans (
-    id integer NOT NULL,
+    id uuid NOT NULL,
     method uuid NOT NULL,
     acc uuid NOT NULL,
     value double precision NOT NULL,
@@ -130,37 +130,10 @@ CREATE TABLE public.trans (
 
 
 --
--- Name: trans_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.trans_id_seq
-    AS integer
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
---
--- Name: trans_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.trans_id_seq OWNED BY public.trans.id;
-
-
---
 -- Name: auth_token id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.auth_token ALTER COLUMN id SET DEFAULT nextval('public."auth-token_id_seq"'::regclass);
-
-
---
--- Name: trans id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.trans ALTER COLUMN id SET DEFAULT nextval('public.trans_id_seq'::regclass);
 
 
 --
