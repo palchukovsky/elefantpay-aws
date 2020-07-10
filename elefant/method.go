@@ -2,6 +2,7 @@ package elefant
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -10,11 +11,53 @@ import (
 ////////////////////////////////////////////////////////////////////////////////
 
 // MethodType is a method type ID.
-type MethodType int8
+type MethodType int16
 
 const (
-	bankCardMethodType MethodType = 0
+	methodTypeBankCard MethodType = 0
+	methodTypeCash     MethodType = 1
 )
+
+func parseMethodType(source int64) (MethodType, error) {
+	switch source {
+	case int64(methodTypeBankCard), int64(methodTypeCash):
+		return MethodType(source), nil
+	default:
+		break
+	}
+	return 0, fmt.Errorf(`failed to parse method type from value "%v"`, source)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+type nullMethodType struct {
+	MethodType MethodType
+	Valid      bool
+}
+
+// Scan implements the Scanner interface.
+func (n *nullMethodType) Scan(source interface{}) error {
+	n.Valid = source != nil
+	if !n.Valid {
+		return nil
+	}
+	switch value := source.(type) {
+	case int64:
+		{
+			var err error
+			if n.MethodType, err = parseMethodType(value); err != nil {
+				return fmt.Errorf(
+					`failed to parse method type from DB-value "%v": "%v"`,
+					value, err)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf(`failed to use DB-type "%v" to read method type`,
+		reflect.TypeOf(source))
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 // MethodID is a method unique ID.
 type MethodID = uuid.UUID
@@ -25,6 +68,22 @@ func newMethodID() MethodID { return uuid.New() }
 func ParseMethodID(source string) (MethodID, error) {
 	return uuid.Parse(source)
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+type nullMethodID struct {
+	MethodID MethodID
+	Valid    bool
+}
+
+// Scan implements the Scanner interface.
+func (n *nullMethodID) Scan(value interface{}) error {
+	var err error
+	n.MethodID, n.Valid, err = scanNullUUID(value)
+	return err
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 // Method describes transaction method.
 type Method interface {
@@ -84,7 +143,7 @@ type bankCardMethod struct {
 }
 
 func (method *bankCardMethod) GetType() MethodType {
-	return bankCardMethodType
+	return methodTypeBankCard
 }
 func (method *bankCardMethod) GetTypeName() string  { return "bank card" }
 func (method *bankCardMethod) GetCard() *BankCard   { return method.card }
@@ -113,7 +172,7 @@ func newMethodByType(
 	currency Currency,
 	getInfo func(interface{}) error) (Method, error) {
 	switch typeID {
-	case bankCardMethodType:
+	case methodTypeBankCard:
 		{
 			card := &BankCard{}
 			if err := getInfo(card); err != nil {

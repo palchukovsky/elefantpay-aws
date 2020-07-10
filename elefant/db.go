@@ -385,7 +385,7 @@ func (t *dbTrans) FindAccountUpdate(
 				trans.id, trans.value, trans.time,
 				method.id, method.info, method.type, method.currency
 		FROM acc
-		RIGHT JOIN trans ON trans.acc = acc.id
+		LEFT JOIN trans ON trans.acc = acc.id
 		LEFT JOIN method ON method.id = trans.method
 		WHERE acc.id = $1 AND acc.client = $2 AND acc.revision > $3
 		ORDER BY trans.time DESC
@@ -402,13 +402,13 @@ func (t *dbTrans) FindAccountUpdate(
 
 		var currency string
 		var balance float64
-		var transID TransID
-		var transValue float64
-		var transTime time.Time
-		var methodID MethodID
-		var methodInfo string
-		var methodType MethodType
-		var methodCurrency string
+		var transID nullTransID
+		var transValue sql.NullFloat64
+		var transTime sql.NullTime
+		var methodID nullMethodID
+		var methodInfo sql.NullString
+		var methodType nullMethodType
+		var methodCurrency sql.NullString
 		err := rows.Scan(&currency, &balance, &revision,
 			&transID, &transValue, &transTime,
 			&methodID, &methodInfo, &methodType, &methodCurrency)
@@ -416,20 +416,27 @@ func (t *dbTrans) FindAccountUpdate(
 			return nil, nil, err
 		}
 
-		method, err := newMethodByType(methodType, methodID, &client,
-			NewCurrency(methodCurrency), func(result interface{}) error {
-				return json.Unmarshal([]byte(methodInfo), result)
-			})
-		if err != nil {
-			return nil, nil, fmt.Errorf(`failed to create method "%v" instance: "%v"`,
-				methodID, err)
+		var method Method
+		if methodID.Valid && transID.Valid {
+			method, err = newMethodByType(methodType.MethodType, methodID.MethodID,
+				&client, NewCurrency(methodCurrency.String),
+				func(result interface{}) error {
+					return json.Unmarshal([]byte(methodInfo.String), result)
+				})
+			if err != nil {
+				return nil, nil, fmt.Errorf(`failed to create method "%v" instance: "%v"`,
+					methodID, err)
+			}
 		}
 
 		if account == nil {
 			account = newAccount(id, client, NewCurrency(currency), balance, revision)
 		}
-		trans = append(trans,
-			newTrans(transID, transValue, transTime, method, account))
+		if method != nil {
+			trans = append(trans,
+				newTrans(transID.TransID, transValue.Float64,
+					transTime.Time, method, account))
+		}
 
 	}
 
@@ -484,10 +491,13 @@ func (t *dbTrans) GetBankCardMethod(
 
 func (t *dbTrans) StartTrans(
 	accID AccountID, method Method, value float64) (TransID, error) {
-	query := `INSERT INTO trans(method, acc, value, time)
-		VALUES($1, $2, $3, $4)
-		RETURNING id`
+	query := `INSERT INTO trans(id, method, acc, value, time)
+		VALUES($1, $2, $3, $4, $5)`
 	now := time.Now().UTC()
-	var id TransID
-	return id, t.tx.QueryRow(query, method.GetID(), accID, value, now).Scan(&id)
+	id := newTransID()
+	result, err := t.tx.Exec(query, id, method.GetID(), accID, value, now)
+	if err != nil {
+		return id, err
+	}
+	return id, t.checkAffectedRows(result)
 }

@@ -1,9 +1,36 @@
 package elefant
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+////////////////////////////////////////////////////////////////////////////////
 
 // TransID is a transaction unique ID.
-type TransID = int64
+type TransID = uuid.UUID
+
+func newTransID() TransID { return uuid.New() }
+
+// ParseTransID parses transaction ID in string.
+func ParseTransID(source string) (TransID, error) { return uuid.Parse(source) }
+
+////////////////////////////////////////////////////////////////////////////////
+
+type nullTransID struct {
+	TransID TransID
+	Valid   bool
+}
+
+// Scan implements the Scanner interface.
+func (n *nullTransID) Scan(value interface{}) error {
+	var err error
+	n.TransID, n.Valid, err = scanNullUUID(value)
+	return err
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 // Trans describes account transaction.
 type Trans struct {
@@ -27,3 +54,5 @@ func newTrans(
 		Method:  method,
 		Account: account}
 }
+
+////////////////////////////////////////////////////////////////////////////////
