@@ -484,10 +484,13 @@ func (t *dbTrans) GetBankCardMethod(
 
 func (t *dbTrans) StartTrans(
 	accID AccountID, method Method, value float64) (TransID, error) {
-	query := `INSERT INTO trans(method, acc, value, time)
-		VALUES($1, $2, $3, $4)
-		RETURNING id`
+	query := `INSERT INTO trans(id, method, acc, value, time)
+		VALUES($1, $2, $3, $4, $5)`
 	now := time.Now().UTC()
-	var id TransID
-	return id, t.tx.QueryRow(query, method.GetID(), accID, value, now).Scan(&id)
+	id := newTransID()
+	result, err := t.tx.Exec(query, id, method.GetID(), accID, value, now)
+	if err != nil {
+		return id, err
+	}
+	return id, t.checkAffectedRows(result)
 }

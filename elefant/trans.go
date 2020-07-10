@@ -1,9 +1,15 @@
 package elefant
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // TransID is a transaction unique ID.
-type TransID = int64
+type TransID = uuid.UUID
+
+func newTransID() TransID { return uuid.New() }
 
 // Trans describes account transaction.
 type Trans struct {
