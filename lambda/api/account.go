@@ -202,7 +202,7 @@ func (lambda *accountBalanceUpdateLambda) Run(
 	if err := db.Commit(); err != nil {
 		return nil, err
 	}
-	elefant.Log.Info(`Started trans "%d": "%s"(%s) -> %f -> "%s"/"%s".`,
+	elefant.Log.Info(`Started trans "%s": "%s"(%s) -> %f -> "%s"/"%s".`,
 		id, method.GetID(), method.GetTypeName(), request.Value,
 		acc.GetClientID(), acc.GetID())
 	return newHTTPResponseEmpty(http.StatusAccepted)
