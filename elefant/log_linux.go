@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"log/syslog"
-	"strings"
 )
 
 type productLog struct {
@@ -59,12 +58,9 @@ func (productLog *productLog) Error(format string, args ...interface{}) {
 }
 
 func (productLog *productLog) Err(err error) {
-	message := fmt.Sprintf("%v", err)
-	if len(message) > 0 {
-		message = strings.ToUpper(string(message[0])) + message[1:]
-		if message[len(message)-1:] != "." {
-			message += "."
-		}
+	message := CapitalizeString(fmt.Sprintf("%v", err))
+	if len(message) > 0 && message[len(message)-1:] != "." {
+		message += "."
 	}
 	productLog.Error(message)
 }

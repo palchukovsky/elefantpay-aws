@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/palchukovsky/elefantpay-aws/elefant"
@@ -68,10 +67,7 @@ func newHTTPResponseBadParam(
 	elefant.Log.Warn(`Response with error code %d: "%s" (%s).`,
 		statusCode, fmt.Sprintf(errFormat, args...), message)
 	response := &errorResponse{Message: message}
-	if len(response.Message) > 0 {
-		response.Message = strings.ToUpper(string(response.Message[0])) +
-			response.Message[1:]
-	}
+	response.Message = elefant.CapitalizeString(response.Message)
 	return newHTTPResponse(statusCode, response)
 }
 

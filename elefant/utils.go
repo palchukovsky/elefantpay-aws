@@ -3,6 +3,7 @@ package elefant
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -25,4 +26,12 @@ func scanNullUUID(source interface{}) (uuid.UUID, bool, error) {
 	}
 	return uuid.UUID{}, false, fmt.Errorf(
 		`failed to use DB-type "%v" to read UUID`, reflect.TypeOf(source))
+}
+
+// CapitalizeString makes the first letter in string uppercase.
+func CapitalizeString(str string) string {
+	if len(str) == 0 {
+		return str
+	}
+	return strings.ToUpper(string(str[0])) + str[1:]
 }

@@ -16,6 +16,7 @@ type MethodType int16
 const (
 	methodTypeBankCard MethodType = 0
 	methodTypeCash     MethodType = 1
+	methodTypeAccount  MethodType = 2
 )
 
 func parseMethodType(source int64) (MethodType, error) {
@@ -165,6 +166,46 @@ func (method *bankCardMethod) GetKey() string {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+// AccountMethod describes transaction method "between accounts".
+type AccountMethod interface {
+	Method
+	GetAccount() AccountID
+}
+
+func newAccountMethod(
+	id MethodID,
+	client *ClientID,
+	currency Currency,
+	account AccountID) AccountMethod {
+	return &accountMethodMethod{
+		method:  newMethod(id, client, currency),
+		account: account}
+}
+
+type accountMethodMethod struct {
+	method
+	account AccountID
+}
+
+func (method *accountMethodMethod) GetType() MethodType {
+	return methodTypeAccount
+}
+func (method *accountMethodMethod) GetTypeName() string { return "account" }
+func (method *accountMethodMethod) GetAccount() AccountID {
+	return method.account
+}
+func (method *accountMethodMethod) GetInfo() interface{} {
+	return method.account
+}
+func (method *accountMethodMethod) GetName() string {
+	return method.account.String()
+}
+func (method *accountMethodMethod) GetKey() string {
+	return method.account.String()
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 func newMethodByType(
 	typeID MethodType,
 	id MethodID,
@@ -179,6 +220,14 @@ func newMethodByType(
 				return nil, err
 			}
 			return newBankCardMethod(id, client, currency, card), nil
+		}
+	case methodTypeAccount:
+		{
+			account := AccountID{}
+			if err := getInfo(&account); err != nil {
+				return nil, err
+			}
+			return newAccountMethod(id, client, currency, account), nil
 		}
 	default:
 		return nil, fmt.Errorf(`method type "%v" is unknown`, typeID)

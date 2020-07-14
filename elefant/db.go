@@ -49,12 +49,24 @@ type DBTrans interface {
 	GetAccounts(ClientID) ([]Account, error)
 	FindAccountUpdate(
 		id AccountID, client ClientID, fromRevision int64) (Account, []*Trans, error)
-	UpdateAccountBalance(
+	UpdateClientAccountBalance(
 		accID AccountID, clientID ClientID, delta float64) (Account, error)
+	UpdateAccountBalance(accID AccountID, delta float64) (Account, error)
 
 	GetBankCardMethod(Account, *BankCard) (BankCardMethod, error)
+	GetAccountMethod(Account, AccountID) (AccountMethod, error)
 
-	StartTrans(accID AccountID, method Method, value float64) (TransID, error)
+	StoreTrans(
+		status TransStatus,
+		acc Account,
+		method Method,
+		value float64) (*Trans, error)
+	StoreTransWithReason(
+		status TransStatus,
+		statusReason string,
+		acc Account,
+		method Method,
+		value float64) (*Trans, error)
 }
 
 var dbName string     // set by builder
@@ -382,7 +394,7 @@ func (t *dbTrans) FindAccountUpdate(
 
 	query := `SELECT
 			acc.currency, acc.balance, acc.revision,
-				trans.id, trans.value, trans.time,
+				trans.id, trans.value, trans.time, trans.status, trans.status_reason,
 				method.id, method.info, method.type, method.currency
 		FROM acc
 		LEFT JOIN trans ON trans.acc = acc.id
@@ -405,12 +417,14 @@ func (t *dbTrans) FindAccountUpdate(
 		var transID nullTransID
 		var transValue sql.NullFloat64
 		var transTime sql.NullTime
+		var transStatus nullTransStatus
+		var transStatusReason sql.NullString
 		var methodID nullMethodID
 		var methodInfo sql.NullString
 		var methodType nullMethodType
 		var methodCurrency sql.NullString
 		err := rows.Scan(&currency, &balance, &revision,
-			&transID, &transValue, &transTime,
+			&transID, &transValue, &transTime, &transStatus, &transStatusReason,
 			&methodID, &methodInfo, &methodType, &methodCurrency)
 		if err != nil {
 			return nil, nil, err
@@ -433,9 +447,14 @@ func (t *dbTrans) FindAccountUpdate(
 			account = newAccount(id, client, NewCurrency(currency), balance, revision)
 		}
 		if method != nil {
+			var transStatusReasonValue *string
+			if transStatusReason.Valid {
+				transStatusReasonValue = &transStatusReason.String
+			}
 			trans = append(trans,
 				newTrans(transID.TransID, transValue.Float64,
-					transTime.Time, method, account))
+					transTime.Time, method, account,
+					transStatus.TransStatus, transStatusReasonValue))
 		}
 
 	}
@@ -443,7 +462,7 @@ func (t *dbTrans) FindAccountUpdate(
 	return account, trans, nil
 }
 
-func (t *dbTrans) UpdateAccountBalance(
+func (t *dbTrans) UpdateClientAccountBalance(
 	id AccountID, clientID ClientID, delta float64) (Account, error) {
 	query := `UPDATE acc
 		SET balance = balance + $3, revision = revision + 1
@@ -462,42 +481,116 @@ func (t *dbTrans) UpdateAccountBalance(
 	return newAccount(id, clientID, NewCurrency(currency), balance, revision), nil
 }
 
-func (t *dbTrans) GetBankCardMethod(
-	acc Account, card *BankCard) (BankCardMethod, error) {
+func (t *dbTrans) UpdateAccountBalance(
+	id AccountID, delta float64) (Account, error) {
+	query := `UPDATE acc
+		SET balance = balance + $2, revision = revision + 1
+		WHERE id = $1
+		RETURNING currency, balance, revision, client`
+	var currency string
+	var balance float64
+	var revision int64
+	var clientID ClientID
+	switch err := t.tx.QueryRow(query, id, delta).
+		Scan(&currency, &balance, &revision, &clientID); {
+	case err == sql.ErrNoRows:
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	return newAccount(id, clientID, NewCurrency(currency), balance, revision), nil
+}
 
+func (t *dbTrans) insertMethod(
+	method Method, acc Account, info string) (MethodID, error) {
 	query := `INSERT INTO method(id, client, type, info, currency, time, key)
 		VALUES($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT ON CONSTRAINT "method-unique-unq"
 			DO UPDATE SET type=EXCLUDED.type
 		RETURNING id;`
+	var result MethodID
+	err := t.tx.QueryRow(
+		query, method.GetID(), acc.GetClientID(), method.GetType(), info,
+		acc.GetCurrency().GetISO(), time.Now().UTC(), method.GetKey()).
+		Scan(&result)
+	return result, err
+}
+
+func (t *dbTrans) GetBankCardMethod(
+	acc Account, card *BankCard) (BankCardMethod, error) {
 	clientID := acc.GetClientID()
 	method := newBankCardMethod(newMethodID(), &clientID, acc.GetCurrency(), card)
 	info, err := json.Marshal(method.GetInfo())
 	if err != nil {
 		return nil, err
 	}
-
 	var id MethodID
-	err = t.tx.QueryRow(
-		query, method.GetID(), acc.GetClientID(), method.GetType(), info,
-		acc.GetCurrency().GetISO(), time.Now().UTC(), method.GetKey()).
-		Scan(&id)
+	id, err = t.insertMethod(method, acc, string(info))
 	if err != nil {
 		return nil, err
 	}
-
 	return newBankCardMethod(id, &clientID, acc.GetCurrency(), card), nil
 }
 
-func (t *dbTrans) StartTrans(
-	accID AccountID, method Method, value float64) (TransID, error) {
-	query := `INSERT INTO trans(id, method, acc, value, time)
-		VALUES($1, $2, $3, $4, $5)`
-	now := time.Now().UTC()
-	id := newTransID()
-	result, err := t.tx.Exec(query, id, method.GetID(), accID, value, now)
+func (t *dbTrans) GetAccountMethod(
+	acc Account, receiver AccountID) (AccountMethod, error) {
+	clientID := acc.GetClientID()
+	method := newAccountMethod(
+		newMethodID(), &clientID, acc.GetCurrency(), receiver)
+	info, err := json.Marshal(method.GetInfo())
 	if err != nil {
-		return id, err
+		return nil, err
 	}
-	return id, t.checkAffectedRows(result)
+	var id MethodID
+	id, err = t.insertMethod(method, acc, string(info))
+	if err != nil {
+		return nil, err
+	}
+	return newAccountMethod(id, &clientID, acc.GetCurrency(), receiver), nil
+}
+
+func (t *dbTrans) storeTrans(
+	status TransStatus,
+	statusReason sql.NullString,
+	acc Account,
+	method Method,
+	value float64) (*Trans, error) {
+	query := `INSERT INTO trans(
+			id, method, acc, value, time, status, status_reason)
+		VALUES($1, $2, $3, $4, $5, $6, $7)`
+	time := time.Now().UTC()
+	id := newTransID()
+	result, err := t.tx.Exec(query, id, method.GetID(), acc.GetID(),
+		value, time, status, statusReason)
+	if err != nil {
+		return nil, err
+	}
+	err = t.checkAffectedRows(result)
+	if err != nil {
+		return nil, err
+	}
+	var statusReasonPtr *string
+	if statusReason.Valid {
+		statusReasonPtr = &statusReason.String
+	}
+	return newTrans(id, value, time, method, acc, status, statusReasonPtr), nil
+}
+
+func (t *dbTrans) StoreTrans(
+	status TransStatus,
+	acc Account,
+	method Method,
+	value float64) (*Trans, error) {
+	return t.storeTrans(status, sql.NullString{Valid: false}, acc, method, value)
+}
+
+func (t *dbTrans) StoreTransWithReason(
+	status TransStatus,
+	statusReason string,
+	acc Account,
+	method Method,
+	value float64) (*Trans, error) {
+	return t.storeTrans(
+		status, sql.NullString{String: statusReason, Valid: true},
+		acc, method, value)
 }
