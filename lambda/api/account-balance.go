@@ -55,6 +55,8 @@ func (lambda *accountBalanceLambda) withdraw(
 	db elefant.DBTrans,
 	trans **elefant.Trans) (*httpResponse, error) {
 
+	delta = -delta
+
 	acc, err := db.UpdateClientAccountBalance(accID, clientID, -delta)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -233,7 +235,7 @@ func (lambda *accountPaymentToAccountLambda) Run(
 	}
 	if accTo == nil {
 		return newHTTPResponseEmptyError(http.StatusNotFound,
-			`receiver account ID "%s" is not unknown`, accToID)
+			`receiver account ID "%s" is not existent`, accToID)
 	}
 	var transTo *elefant.Trans
 	response, err = lambda.deposit(accTo, request.Value,
