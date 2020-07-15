@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -47,6 +48,7 @@ type DBTrans interface {
 
 	CreateAccount(Currency, ClientID) (Account, error)
 	GetAccounts(ClientID) ([]Account, error)
+	FindAccountByEmail(email string, currency Currency) (*AccountID, error)
 	FindAccountUpdate(
 		id AccountID, client ClientID, fromRevision int64) (Account, []*Trans, error)
 	UpdateClientAccountBalance(
@@ -242,6 +244,7 @@ func (t *dbTrans) ConfirmClient(id ClientID) (Client, error) {
 
 func (t *dbTrans) FindClientByCreds(
 	email, password string) (Client, bool, error) {
+	email = strings.ToLower(email)
 	query := `SELECT
 			id, (password = crypt($2, password)) AS password_match, confirmed, name
 		FROM client WHERE email = $1`
@@ -263,6 +266,7 @@ func (t *dbTrans) FindClientByCreds(
 }
 
 func (t *dbTrans) FindClientByEmail(email string) (Client, bool, error) {
+	email = strings.ToLower(email)
 	query := `SELECT id, confirmed, name FROM client WHERE email = $1`
 	var id ClientID
 	var isConfirmed bool
@@ -278,6 +282,7 @@ func (t *dbTrans) FindClientByEmail(email string) (Client, bool, error) {
 
 func (t *dbTrans) CreateClient(
 	email, password, name string, request interface{}) (Client, error) {
+	email = strings.ToLower(email)
 	requestStr, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
@@ -460,6 +465,24 @@ func (t *dbTrans) FindAccountUpdate(
 	}
 
 	return account, trans, nil
+}
+
+func (t *dbTrans) FindAccountByEmail(
+	email string, currency Currency) (*AccountID, error) {
+	query := `SELECT account.id
+		FROM client
+			LEFT JOIN acc ON acc.client = client.id
+		WHERE client.email = $1 AND acc.currency = $2
+		LIMIT 1`
+	var accID AccountID
+	switch err := t.tx.QueryRow(query, strings.ToLower(email), currency.GetISO()).
+		Scan(&accID); {
+	case err == sql.ErrNoRows:
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	return &accID, nil
 }
 
 func (t *dbTrans) UpdateClientAccountBalance(
