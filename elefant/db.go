@@ -469,7 +469,7 @@ func (t *dbTrans) FindAccountUpdate(
 
 func (t *dbTrans) FindAccountByEmail(
 	email string, currency Currency) (*AccountID, error) {
-	query := `SELECT account.id
+	query := `SELECT acc.id
 		FROM client
 			LEFT JOIN acc ON acc.client = client.id
 		WHERE client.email = $1 AND acc.currency = $2

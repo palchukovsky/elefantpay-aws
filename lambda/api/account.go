@@ -142,3 +142,42 @@ func (*accountHistoryLambda) Run(LambdaRequest) (*httpResponse, error) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+type accountFindLambda struct{ accountLambda }
+
+func (*lambdaFactory) NewAccountFindLambda() lambdaImpl {
+	return &accountFindLambda{accountLambda: newAccountLambda()}
+}
+
+func (*accountFindLambda) CreateRequest() interface{} { return nil }
+
+func (lambda *accountFindLambda) Run(request LambdaRequest) (*httpResponse, error) {
+	email, err := request.ReadQueryArgString("email")
+	if err != nil {
+		return newHTTPResponseBadParam("email is not provided",
+			`failed to get email: "%v"`, err)
+	}
+	var currencyCode string
+	if currencyCode, err = request.ReadQueryArgString("currency"); err != nil {
+		return newHTTPResponseBadParam("currency is not provided",
+			`failed to get currency: "%v"`, err)
+	}
+	var db elefant.DBTrans
+	if db, err = lambda.db.Begin(); err != nil {
+		return nil, err
+	}
+	var result *elefant.AccountID
+	result, err = db.FindAccountByEmail(
+		email, elefant.NewCurrency(currencyCode))
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return newHTTPResponseEmpty(http.StatusNotFound)
+	}
+	return newHTTPResponse(http.StatusOK, &struct {
+		Account string `json:"account"`
+	}{Account: result.String()})
+}
+
+////////////////////////////////////////////////////////////////////////////////

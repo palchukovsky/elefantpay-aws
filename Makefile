@@ -207,6 +207,7 @@ define for-each-api-lambda
 	$(call ${1},ClientConfirm)
 	$(call ${1},ClientConfirmResend)
 	$(call ${1},AccountList)
+	$(call ${1},AccountFind)
 	$(call ${1},AccountInfo)
 	$(call ${1},AccountHistory)
 	$(call ${1},AccountDeposit)

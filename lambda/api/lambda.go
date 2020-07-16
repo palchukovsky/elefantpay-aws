@@ -71,6 +71,7 @@ type LambdaRequest interface {
 	ReadPathArgAccountID() (elefant.AccountID, error)
 
 	ReadQueryArgInt64(name string) (int64, error)
+	ReadQueryArgString(name string) (string, error)
 }
 
 type lambdaRequest struct {
@@ -237,6 +238,14 @@ func (request *lambdaRequest) ReadQueryArgInt64(name string) (int64, error) {
 	result, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
 		return 0, err
+	}
+	return result, nil
+}
+
+func (request *lambdaRequest) ReadQueryArgString(name string) (string, error) {
+	result, has := request.Request.QueryStringParameters[name]
+	if !has {
+		return result, errors.New("arg is not provided")
 	}
 	return result, nil
 }
