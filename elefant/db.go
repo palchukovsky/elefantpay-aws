@@ -57,6 +57,7 @@ type DBTrans interface {
 
 	GetBankCardMethod(Account, *BankCard) (BankCardMethod, error)
 	GetAccountMethod(Account, AccountID) (AccountMethod, error)
+	GetTaxMethod(account Account, bill string) (TaxMethod, error)
 
 	StoreTrans(
 		status TransStatus,
@@ -400,7 +401,7 @@ func (t *dbTrans) FindAccountUpdate(
 	query := `SELECT
 			acc.currency, acc.balance, acc.revision,
 				trans.id, trans.value, trans.time, trans.status, trans.status_reason,
-				method.id, method.info, method.type, method.currency
+				trans.method_arg, method.id, method.info, method.type, method.currency
 		FROM acc
 		LEFT JOIN trans ON trans.acc = acc.id
 		LEFT JOIN method ON method.id = trans.method
@@ -424,13 +425,14 @@ func (t *dbTrans) FindAccountUpdate(
 		var transTime sql.NullTime
 		var transStatus nullTransStatus
 		var transStatusReason sql.NullString
+		var methodArg sql.NullString
 		var methodID nullMethodID
 		var methodInfo sql.NullString
 		var methodType nullMethodType
 		var methodCurrency sql.NullString
 		err := rows.Scan(&currency, &balance, &revision,
 			&transID, &transValue, &transTime, &transStatus, &transStatusReason,
-			&methodID, &methodInfo, &methodType, &methodCurrency)
+			&methodArg, &methodID, &methodInfo, &methodType, &methodCurrency)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -441,6 +443,9 @@ func (t *dbTrans) FindAccountUpdate(
 				&client, NewCurrency(methodCurrency.String),
 				func(result interface{}) error {
 					return json.Unmarshal([]byte(methodInfo.String), result)
+				},
+				func(result interface{}) error {
+					return json.Unmarshal([]byte(methodArg.String), result)
 				})
 			if err != nil {
 				return nil, nil, fmt.Errorf(`failed to create method "%v" instance: "%v"`,
@@ -525,51 +530,57 @@ func (t *dbTrans) UpdateAccountBalance(
 }
 
 func (t *dbTrans) insertMethod(
-	method Method, acc Account, info string) (MethodID, error) {
+	createMethod func(MethodID, ClientID) Method, acc Account) error {
+	id := newMethodID()
+	clientID := acc.GetClientID()
+	method := createMethod(id, clientID)
+	info, err := json.Marshal(method.GetInfo())
+	if err != nil {
+		return err
+	}
 	query := `INSERT INTO method(id, client, type, info, currency, time, key)
 		VALUES($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT ON CONSTRAINT "method-unique-unq"
 			DO UPDATE SET type=EXCLUDED.type
-		RETURNING id;`
-	var result MethodID
-	err := t.tx.QueryRow(
-		query, method.GetID(), acc.GetClientID(), method.GetType(), info,
+		RETURNING id`
+	var newID MethodID
+	err = t.tx.QueryRow(
+		query, method.GetID(), acc.GetClientID(), method.GetType(), string(info),
 		acc.GetCurrency().GetISO(), time.Now().UTC(), method.GetKey()).
-		Scan(&result)
-	return result, err
+		Scan(&newID)
+	if err != nil {
+		return err
+	}
+	if newID != id {
+		createMethod(newID, clientID)
+	}
+	return nil
 }
 
 func (t *dbTrans) GetBankCardMethod(
 	acc Account, card *BankCard) (BankCardMethod, error) {
-	clientID := acc.GetClientID()
-	method := newBankCardMethod(newMethodID(), &clientID, acc.GetCurrency(), card)
-	info, err := json.Marshal(method.GetInfo())
-	if err != nil {
-		return nil, err
-	}
-	var id MethodID
-	id, err = t.insertMethod(method, acc, string(info))
-	if err != nil {
-		return nil, err
-	}
-	return newBankCardMethod(id, &clientID, acc.GetCurrency(), card), nil
+	var result BankCardMethod
+	return result, t.insertMethod(func(id MethodID, client ClientID) Method {
+		result = newBankCardMethod(id, &client, acc.GetCurrency(), card)
+		return result
+	}, acc)
 }
 
 func (t *dbTrans) GetAccountMethod(
 	acc Account, receiver AccountID) (AccountMethod, error) {
-	clientID := acc.GetClientID()
-	method := newAccountMethod(
-		newMethodID(), &clientID, acc.GetCurrency(), receiver)
-	info, err := json.Marshal(method.GetInfo())
-	if err != nil {
-		return nil, err
-	}
-	var id MethodID
-	id, err = t.insertMethod(method, acc, string(info))
-	if err != nil {
-		return nil, err
-	}
-	return newAccountMethod(id, &clientID, acc.GetCurrency(), receiver), nil
+	var result AccountMethod
+	return result, t.insertMethod(func(id MethodID, client ClientID) Method {
+		result = newAccountMethod(id, &client, acc.GetCurrency(), receiver)
+		return result
+	}, acc)
+}
+
+func (t *dbTrans) GetTaxMethod(acc Account, bill string) (TaxMethod, error) {
+	var result TaxMethod
+	return result, t.insertMethod(func(id MethodID, client ClientID) Method {
+		result = newTaxMethod(id, &client, acc.GetCurrency(), newTaxMethodArg(bill))
+		return result
+	}, acc)
 }
 
 func (t *dbTrans) storeTrans(

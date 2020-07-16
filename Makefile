@@ -212,6 +212,7 @@ define for-each-api-lambda
 	$(call ${1},AccountHistory)
 	$(call ${1},AccountDeposit)
 	$(call ${1},AccountPaymentToAccount)
+	$(call ${1},AccountPaymentTax)
 
 endef
 define upload-assets

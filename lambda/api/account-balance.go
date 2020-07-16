@@ -57,7 +57,7 @@ func (lambda *accountBalanceLambda) withdraw(
 
 	delta = -delta
 
-	acc, err := db.UpdateClientAccountBalance(accID, clientID, -delta)
+	acc, err := db.UpdateClientAccountBalance(accID, clientID, delta)
 	if err != nil {
 		return nil, fmt.Errorf(
 			`failed to update account "%s" balance for client "%s" with delta %f: "%v"`,
@@ -173,7 +173,7 @@ func (lambda *accountDepositLambda) Run(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-type paymentToAccountOrder struct {
+type accountPaymentAccountOrder struct {
 	Value   float64 `json:"value"`
 	Account string  `json:"account"`
 }
@@ -186,7 +186,7 @@ func (*lambdaFactory) NewAccountPaymentToAccountLambda() lambdaImpl {
 }
 
 func (*accountPaymentToAccountLambda) CreateRequest() interface{} {
-	return &paymentToAccountOrder{}
+	return &accountPaymentAccountOrder{}
 }
 
 func (lambda *accountPaymentToAccountLambda) Run(
@@ -198,7 +198,7 @@ func (lambda *accountPaymentToAccountLambda) Run(
 	}
 	clientID := lambdaRequest.GetClientID()
 
-	request := lambdaRequest.GetRequest().(*paymentToAccountOrder)
+	request := lambdaRequest.GetRequest().(*accountPaymentAccountOrder)
 	if request.Value <= 0 {
 		return newHTTPResponseBadParam("value must be positive",
 			`value has invalid value "%v"`, request.Value)
@@ -251,6 +251,62 @@ func (lambda *accountPaymentToAccountLambda) Run(
 	}
 	elefant.Log.Info(fmtTransLog(transFrom))
 	elefant.Log.Info(fmtTransLog(transTo))
+	return newHTTPResponseEmpty(http.StatusAccepted)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+type accountPaymentTaxOrder struct {
+	Value float64 `json:"value"`
+	Bill  string  `json:"bill"`
+}
+
+type accountPaymentTaxLambda struct{ accountBalanceLambda }
+
+func (*lambdaFactory) NewAccountPaymentTaxLambda() lambdaImpl {
+	return &accountPaymentTaxLambda{
+		accountBalanceLambda: newAccountBalanceLambda()}
+}
+
+func (*accountPaymentTaxLambda) CreateRequest() interface{} {
+	return &accountPaymentTaxOrder{}
+}
+
+func (lambda *accountPaymentTaxLambda) Run(
+	lambdaRequest LambdaRequest) (*httpResponse, error) {
+
+	accID, err := lambdaRequest.ReadPathArgAccountID()
+	if err != nil {
+		return newHTTPResponseBadParam("account ID has invalid format", "%v", err)
+	}
+	clientID := lambdaRequest.GetClientID()
+
+	request := lambdaRequest.GetRequest().(*accountPaymentTaxOrder)
+	if request.Value <= 0 {
+		return newHTTPResponseBadParam("value must be positive",
+			`value has invalid value "%v"`, request.Value)
+	}
+
+	db, err := lambda.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer db.Rollback()
+
+	var trans *elefant.Trans
+	var response *httpResponse
+	response, err = lambda.withdraw(accID, clientID, request.Value,
+		func(acc elefant.Account, db elefant.DBTrans) (elefant.Method, error) {
+			return db.GetTaxMethod(acc, request.Bill)
+		}, db, &trans)
+	if response != nil || err != nil {
+		return response, err
+	}
+
+	if err := db.Commit(); err != nil {
+		return nil, err
+	}
+	elefant.Log.Info(fmtTransLog(trans))
 	return newHTTPResponseEmpty(http.StatusAccepted)
 }
 

@@ -15,18 +15,16 @@ type MethodType int16
 
 const (
 	methodTypeBankCard MethodType = 0
-	methodTypeCash     MethodType = 1
-	methodTypeAccount  MethodType = 2
+	methodTypeAccount  MethodType = 1
+	methodTypeTax      MethodType = 2
+	methodTypeLast     int64      = int64(methodTypeTax)
 )
 
 func parseMethodType(source int64) (MethodType, error) {
-	switch source {
-	case int64(methodTypeBankCard), int64(methodTypeCash):
-		return MethodType(source), nil
-	default:
-		break
+	if source < 0 || source > methodTypeLast {
+		return 0, fmt.Errorf(`failed to parse method type from value "%v"`, source)
 	}
-	return 0, fmt.Errorf(`failed to parse method type from value "%v"`, source)
+	return MethodType(source), nil
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -94,8 +92,9 @@ type Method interface {
 	GetClientID() *ClientID
 	GetCurrency() Currency
 	GetName() string
-	GetKey() string
+	GetKey() *string
 	GetInfo() interface{}
+	GetArg() interface{}
 }
 
 type method struct {
@@ -125,7 +124,6 @@ type BankCard struct {
 // BankCardMethod describes transaction method "bank card".
 type BankCardMethod interface {
 	Method
-	GetCard() *BankCard
 }
 
 func newBankCardMethod(
@@ -143,14 +141,12 @@ type bankCardMethod struct {
 	card *BankCard
 }
 
-func (method *bankCardMethod) GetType() MethodType {
-	return methodTypeBankCard
-}
-func (method *bankCardMethod) GetTypeName() string  { return "bank card" }
-func (method *bankCardMethod) GetCard() *BankCard   { return method.card }
-func (method *bankCardMethod) GetInfo() interface{} { return method.card }
-func (method *bankCardMethod) GetName() string {
-	result := strconv.Itoa(method.card.Number)
+func (m *bankCardMethod) GetType() MethodType  { return methodTypeBankCard }
+func (m *bankCardMethod) GetTypeName() string  { return "bank card" }
+func (m *bankCardMethod) GetInfo() interface{} { return m.card }
+func (m *bankCardMethod) GetArg() interface{}  { return nil }
+func (m *bankCardMethod) GetName() string {
+	result := strconv.Itoa(m.card.Number)
 	if len(result) > 8 {
 		result = result[0:4] + " ... " + result[len(result)-4:]
 	} else if len(result) > 2 {
@@ -158,10 +154,10 @@ func (method *bankCardMethod) GetName() string {
 	}
 	return result
 }
-func (method *bankCardMethod) GetKey() string {
-	return fmt.Sprintf("|%d|%d|%d|%s|",
-		method.card.Number, method.card.ValidThruMonth,
-		method.card.ValidThruYear, method.card.Cvc)
+func (m *bankCardMethod) GetKey() *string {
+	result := fmt.Sprintf("|%d|%d|%d|%s|",
+		m.card.Number, m.card.ValidThruMonth, m.card.ValidThruYear, m.card.Cvc)
+	return &result
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -169,7 +165,6 @@ func (method *bankCardMethod) GetKey() string {
 // AccountMethod describes transaction method "between accounts".
 type AccountMethod interface {
 	Method
-	GetAccount() AccountID
 }
 
 func newAccountMethod(
@@ -177,31 +172,63 @@ func newAccountMethod(
 	client *ClientID,
 	currency Currency,
 	account AccountID) AccountMethod {
-	return &accountMethodMethod{
+	return &accountMethod{
 		method:  newMethod(id, client, currency),
 		account: account}
 }
 
-type accountMethodMethod struct {
+type accountMethod struct {
 	method
 	account AccountID
 }
 
-func (method *accountMethodMethod) GetType() MethodType {
-	return methodTypeAccount
+func (m *accountMethod) GetTypeName() string  { return "account" }
+func (m *accountMethod) GetInfo() interface{} { return m.account }
+func (m *accountMethod) GetArg() interface{}  { return nil }
+func (m *accountMethod) GetType() MethodType  { return methodTypeAccount }
+func (m *accountMethod) GetName() string      { return m.account.String() }
+func (m *accountMethod) GetKey() *string {
+	result := m.account.String()
+	return &result
 }
-func (method *accountMethodMethod) GetTypeName() string { return "account" }
-func (method *accountMethodMethod) GetAccount() AccountID {
-	return method.account
+
+////////////////////////////////////////////////////////////////////////////////
+
+// TaxMethod describes transaction method "taxes".
+type TaxMethod interface {
+	Method
 }
-func (method *accountMethodMethod) GetInfo() interface{} {
-	return method.account
+
+type taxMethodArg struct {
+	Bill string `json:"b"`
 }
-func (method *accountMethodMethod) GetName() string {
-	return method.account.String()
+
+func newTaxMethodArg(bill string) taxMethodArg {
+	return taxMethodArg{Bill: bill}
 }
-func (method *accountMethodMethod) GetKey() string {
-	return method.account.String()
+
+func newTaxMethod(
+	id MethodID,
+	client *ClientID,
+	currency Currency,
+	arg taxMethodArg) TaxMethod {
+	return &taxMethod{
+		method: newMethod(id, client, currency),
+		arg:    arg}
+}
+
+type taxMethod struct {
+	method
+	arg taxMethodArg
+}
+
+func (m *taxMethod) GetType() MethodType  { return methodTypeTax }
+func (m *taxMethod) GetTypeName() string  { return "tax" }
+func (m *taxMethod) GetInfo() interface{} { return nil }
+func (m *taxMethod) GetKey() *string      { return nil }
+func (m *taxMethod) GetArg() interface{}  { return m.arg }
+func (m *taxMethod) GetName() string {
+	return fmt.Sprintf(`Tax (bill no. "%s")`, m.arg.Bill)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -211,6 +238,7 @@ func newMethodByType(
 	id MethodID,
 	client *ClientID,
 	currency Currency,
+	getArg func(interface{}) error,
 	getInfo func(interface{}) error) (Method, error) {
 	switch typeID {
 	case methodTypeBankCard:
@@ -228,6 +256,14 @@ func newMethodByType(
 				return nil, err
 			}
 			return newAccountMethod(id, client, currency, account), nil
+		}
+	case methodTypeTax:
+		{
+			arg := taxMethodArg{}
+			if err := getArg(&arg); err != nil {
+				return nil, err
+			}
+			return newTaxMethod(id, client, currency, arg), nil
 		}
 	default:
 		return nil, fmt.Errorf(`method type "%v" is unknown`, typeID)
