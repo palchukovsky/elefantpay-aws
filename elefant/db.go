@@ -589,13 +589,25 @@ func (t *dbTrans) storeTrans(
 	acc Account,
 	method Method,
 	value float64) (*Trans, error) {
+
+	var methodArg sql.NullString
+	methodArgObj := method.GetArg()
+	if methodArgObj != nil {
+		methodArgByte, err := json.Marshal(methodArgObj)
+		if err != nil {
+			return nil, err
+		}
+		methodArg.String = string(methodArgByte)
+		methodArg.Valid = true
+	}
+
 	query := `INSERT INTO trans(
-			id, method, acc, value, time, status, status_reason)
-		VALUES($1, $2, $3, $4, $5, $6, $7)`
+			id, method, acc, value, time, status, status_reason, method_arg)
+		VALUES($1, $2, $3, $4, $5, $6, $7, $8)`
 	time := time.Now().UTC()
 	id := newTransID()
 	result, err := t.tx.Exec(query, id, method.GetID(), acc.GetID(),
-		value, time, status, statusReason)
+		value, time, status, statusReason, methodArg)
 	if err != nil {
 		return nil, err
 	}
@@ -603,10 +615,12 @@ func (t *dbTrans) storeTrans(
 	if err != nil {
 		return nil, err
 	}
+
 	var statusReasonPtr *string
 	if statusReason.Valid {
 		statusReasonPtr = &statusReason.String
 	}
+
 	return newTrans(id, value, time, method, acc, status, statusReasonPtr), nil
 }
 
@@ -615,7 +629,7 @@ func (t *dbTrans) StoreTrans(
 	acc Account,
 	method Method,
 	value float64) (*Trans, error) {
-	return t.storeTrans(status, sql.NullString{Valid: false}, acc, method, value)
+	return t.storeTrans(status, sql.NullString{}, acc, method, value)
 }
 
 func (t *dbTrans) StoreTransWithReason(
