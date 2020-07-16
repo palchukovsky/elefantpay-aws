@@ -53,11 +53,12 @@ func (lambda *accountBalanceLambda) withdraw(
 	delta float64,
 	getMethod func(elefant.Account, elefant.DBTrans) (elefant.Method, error),
 	db elefant.DBTrans,
-	trans **elefant.Trans) (*httpResponse, error) {
+	transResult **elefant.Trans,
+	clientResult *elefant.Client) (*httpResponse, error) {
 
 	delta = -delta
 
-	acc, err := db.UpdateClientAccountBalance(accID, clientID, delta)
+	client, acc, err := db.UpdateClientAccountBalance(accID, clientID, delta)
 	if err != nil {
 		return nil, fmt.Errorf(
 			`failed to update account "%s" balance for client "%s" with delta %f: "%v"`,
@@ -66,6 +67,9 @@ func (lambda *accountBalanceLambda) withdraw(
 	if acc == nil {
 		return newHTTPResponseEmptyError(http.StatusBadRequest,
 			`client "%s" does not have account "%s"`, clientID, accID)
+	}
+	if clientResult != nil {
+		*clientResult = client
 	}
 
 	var method elefant.Method
@@ -87,7 +91,8 @@ func (lambda *accountBalanceLambda) withdraw(
 			acc, method, delta, "insufficient funds", failedTransDb)
 	}
 
-	*trans, err = db.StoreTrans(elefant.TransStatusSuccess, acc, method, delta)
+	*transResult, err = db.StoreTrans(elefant.TransStatusSuccess,
+		acc, method, delta)
 
 	return nil, err
 }
@@ -143,7 +148,7 @@ func (lambda *accountDepositLambda) Run(
 	defer db.Rollback()
 
 	var acc elefant.Account
-	acc, err = db.UpdateClientAccountBalance(accID, clientID, request.Value)
+	_, acc, err = db.UpdateClientAccountBalance(accID, clientID, request.Value)
 	if err != nil {
 		return nil, fmt.Errorf(
 			`failed to update account "%s" balance for client "%s" with delta %f: "%v"`,
@@ -216,18 +221,9 @@ func (lambda *accountPaymentToAccountLambda) Run(
 	}
 	defer db.Rollback()
 
-	var transFrom *elefant.Trans
-	var response *httpResponse
-	response, err = lambda.withdraw(accFromID, clientID, request.Value,
-		func(acc elefant.Account, db elefant.DBTrans) (elefant.Method, error) {
-			return db.GetAccountMethod(acc, accToID)
-		}, db, &transFrom)
-	if response != nil || err != nil {
-		return response, err
-	}
-
+	var clientTo elefant.Client
 	var accTo elefant.Account
-	accTo, err = db.UpdateAccountBalance(accToID, request.Value)
+	clientTo, accTo, err = db.UpdateAccountBalance(accToID, request.Value)
 	if err != nil {
 		return nil, fmt.Errorf(
 			`failed to update account "%s" balance with delta %f: "%v"`,
@@ -237,10 +233,28 @@ func (lambda *accountPaymentToAccountLambda) Run(
 		return newHTTPResponseEmptyError(http.StatusNotFound,
 			`receiver account ID "%s" is not existent`, accToID)
 	}
+
+	var clientFrom elefant.Client
+	var transFrom *elefant.Trans
+	var response *httpResponse
+	response, err = lambda.withdraw(accFromID, clientID, request.Value,
+		func(acc elefant.Account, db elefant.DBTrans) (elefant.Method, error) {
+			return db.GetAccountMethod(acc, accToID, clientTo.GetEmail())
+		}, db, &transFrom, &clientFrom)
+	if response != nil || err != nil {
+		return response, err
+	}
+	if transFrom.Account.GetCurrency().GetISO() != accTo.GetCurrency().GetISO() {
+		return newHTTPResponseBadParam("invalid receiver account ID",
+			`account-sender "%s" has currency "%s", but account-receiver "%s" - "%s"`,
+			transFrom.Account.GetID(), transFrom.Account.GetCurrency().GetISO(),
+			accTo.GetID(), accTo.GetCurrency().GetISO())
+	}
+
 	var transTo *elefant.Trans
 	response, err = lambda.deposit(accTo, request.Value,
 		func() (elefant.Method, error) {
-			return db.GetAccountMethod(accTo, accFromID)
+			return db.GetAccountMethod(accTo, accFromID, clientFrom.GetEmail())
 		}, db, &transTo)
 	if response != nil || err != nil {
 		return response, err
@@ -298,7 +312,7 @@ func (lambda *accountPaymentTaxLambda) Run(
 	response, err = lambda.withdraw(accID, clientID, request.Value,
 		func(acc elefant.Account, db elefant.DBTrans) (elefant.Method, error) {
 			return db.GetTaxMethod(acc, request.Bill)
-		}, db, &trans)
+		}, db, &trans, nil)
 	if response != nil || err != nil {
 		return response, err
 	}

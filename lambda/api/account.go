@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
@@ -112,12 +111,7 @@ func (lambda *accountInfoLambda) Run(
 
 	history := make([]*accountAction, len(trans))
 	for i := 0; i < len(trans); i++ {
-		t := trans[i]
-		history[i] = &accountAction{
-			Time:    t.Time,
-			Value:   t.Value,
-			Subject: fmt.Sprintf("deposit by card %s", t.Method.GetName()),
-			State:   "success"}
+		history[i] = lambda.exportTrans(trans[i])
 	}
 
 	return newHTTPResponse(http.StatusOK, &accountDetails{
@@ -125,6 +119,19 @@ func (lambda *accountInfoLambda) Run(
 		Balance:  acc.GetBalance(),
 		Revision: acc.GetRevision(),
 		History:  history})
+}
+
+func (lambda *accountInfoLambda) exportTrans(
+	trans *elefant.Trans) *accountAction {
+	result := &accountAction{
+		Time:    trans.Time,
+		Value:   trans.Value,
+		Subject: trans.Method.GetName(),
+		State:   trans.Status.String()}
+	if trans.StatusReason != nil {
+		result.Notes = *trans.StatusReason
+	}
+	return result
 }
 
 ////////////////////////////////////////////////////////////////////////////////

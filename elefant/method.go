@@ -89,27 +89,27 @@ type Method interface {
 	GetID() MethodID
 	GetType() MethodType
 	GetTypeName() string
-	GetClientID() *ClientID
+	GetClientID() ClientID
 	GetCurrency() Currency
 	GetName() string
-	GetKey() *string
+	GetKey() string
 	GetInfo() interface{}
 	GetArg() interface{}
 }
 
 type method struct {
 	id       MethodID
-	client   *ClientID
+	client   ClientID
 	currency Currency
 }
 
-func newMethod(id MethodID, client *ClientID, currency Currency) method {
+func newMethod(id MethodID, client ClientID, currency Currency) method {
 	return method{id: id, client: client, currency: currency}
 }
 
-func (method *method) GetID() MethodID        { return method.id }
-func (method *method) GetClientID() *ClientID { return method.client }
-func (method *method) GetCurrency() Currency  { return method.currency }
+func (method *method) GetID() MethodID       { return method.id }
+func (method *method) GetClientID() ClientID { return method.client }
+func (method *method) GetCurrency() Currency { return method.currency }
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -128,7 +128,7 @@ type BankCardMethod interface {
 
 func newBankCardMethod(
 	id MethodID,
-	client *ClientID,
+	client ClientID,
 	currency Currency,
 	card *BankCard) BankCardMethod {
 	return &bankCardMethod{
@@ -152,12 +152,11 @@ func (m *bankCardMethod) GetName() string {
 	} else if len(result) > 2 {
 		result = result[0:1] + " ... " + result[len(result)-1:]
 	}
-	return result
+	return m.GetTypeName() + " " + result
 }
-func (m *bankCardMethod) GetKey() *string {
-	result := fmt.Sprintf("|%d|%d|%d|%s|",
+func (m *bankCardMethod) GetKey() string {
+	return fmt.Sprintf("|%d|%d|%d|%s|",
 		m.card.Number, m.card.ValidThruMonth, m.card.ValidThruYear, m.card.Cvc)
-	return &result
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -167,30 +166,38 @@ type AccountMethod interface {
 	Method
 }
 
+type accountMethodArg struct {
+	Email string `json:"e"`
+}
+
+func newAccountMethodArg(email string) accountMethodArg {
+	return accountMethodArg{Email: email}
+}
+
 func newAccountMethod(
 	id MethodID,
-	client *ClientID,
+	client ClientID,
 	currency Currency,
-	account AccountID) AccountMethod {
+	account AccountID,
+	arg accountMethodArg) AccountMethod {
 	return &accountMethod{
 		method:  newMethod(id, client, currency),
-		account: account}
+		account: account,
+		arg:     arg}
 }
 
 type accountMethod struct {
 	method
 	account AccountID
+	arg     accountMethodArg
 }
 
 func (m *accountMethod) GetTypeName() string  { return "account" }
 func (m *accountMethod) GetInfo() interface{} { return m.account }
-func (m *accountMethod) GetArg() interface{}  { return nil }
+func (m *accountMethod) GetArg() interface{}  { return m.arg }
 func (m *accountMethod) GetType() MethodType  { return methodTypeAccount }
-func (m *accountMethod) GetName() string      { return m.account.String() }
-func (m *accountMethod) GetKey() *string {
-	result := m.account.String()
-	return &result
-}
+func (m *accountMethod) GetKey() string       { return m.account.String() }
+func (m *accountMethod) GetName() string      { return m.arg.Email }
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -209,7 +216,7 @@ func newTaxMethodArg(bill string) taxMethodArg {
 
 func newTaxMethod(
 	id MethodID,
-	client *ClientID,
+	client ClientID,
 	currency Currency,
 	arg taxMethodArg) TaxMethod {
 	return &taxMethod{
@@ -225,10 +232,10 @@ type taxMethod struct {
 func (m *taxMethod) GetType() MethodType  { return methodTypeTax }
 func (m *taxMethod) GetTypeName() string  { return "tax" }
 func (m *taxMethod) GetInfo() interface{} { return nil }
-func (m *taxMethod) GetKey() *string      { return nil }
+func (m *taxMethod) GetKey() string       { return "" }
 func (m *taxMethod) GetArg() interface{}  { return m.arg }
 func (m *taxMethod) GetName() string {
-	return fmt.Sprintf(`Tax (bill no. "%s")`, m.arg.Bill)
+	return fmt.Sprintf(`tax bill "%s"`, m.arg.Bill)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -236,7 +243,7 @@ func (m *taxMethod) GetName() string {
 func newMethodByType(
 	typeID MethodType,
 	id MethodID,
-	client *ClientID,
+	client ClientID,
 	currency Currency,
 	getArg func(interface{}) error,
 	getInfo func(interface{}) error) (Method, error) {
@@ -251,11 +258,15 @@ func newMethodByType(
 		}
 	case methodTypeAccount:
 		{
+			arg := accountMethodArg{}
+			if err := getArg(&arg); err != nil {
+				return nil, err
+			}
 			account := AccountID{}
 			if err := getInfo(&account); err != nil {
 				return nil, err
 			}
-			return newAccountMethod(id, client, currency, account), nil
+			return newAccountMethod(id, client, currency, account, arg), nil
 		}
 	case methodTypeTax:
 		{

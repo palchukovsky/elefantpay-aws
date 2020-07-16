@@ -3,6 +3,7 @@ package elefant
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -50,13 +51,18 @@ type DBTrans interface {
 	GetAccounts(ClientID) ([]Account, error)
 	FindAccountByEmail(email string, currency Currency) (*AccountID, error)
 	FindAccountUpdate(
-		id AccountID, client ClientID, fromRevision int64) (Account, []*Trans, error)
+		id AccountID,
+		client ClientID,
+		fromRevision int64) (Account, []*Trans, error)
 	UpdateClientAccountBalance(
-		accID AccountID, clientID ClientID, delta float64) (Account, error)
-	UpdateAccountBalance(accID AccountID, delta float64) (Account, error)
+		accID AccountID, clientID ClientID, delta float64) (Client, Account, error)
+	UpdateAccountBalance(accID AccountID, delta float64) (Client, Account, error)
 
 	GetBankCardMethod(Account, *BankCard) (BankCardMethod, error)
-	GetAccountMethod(Account, AccountID) (AccountMethod, error)
+	GetAccountMethod(
+		acc Account,
+		receiverAcc AccountID,
+		receiverEmail string) (AccountMethod, error)
 	GetTaxMethod(account Account, bill string) (TaxMethod, error)
 
 	StoreTrans(
@@ -155,7 +161,8 @@ func (t *dbTrans) isDuplicateErr(err error) bool {
 
 func (t *dbTrans) CreateClientConfirmation(
 	clientID ClientID, genToken func() string) (ConfirmationID, string, error) {
-	query := `INSERT INTO client_confirm(id, "time", token, client)
+	query := `
+		INSERT INTO client_confirm(id, "time", token, client)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id`
 	id := newConfirmationID()
@@ -178,7 +185,8 @@ func (t *dbTrans) CreateClientConfirmation(
 func (t *dbTrans) AcceptClientConfirmation(
 	id ConfirmationID, token string) (*ClientID, error) {
 
-	query := `DELETE FROM client_confirm
+	query := `
+		DELETE FROM client_confirm
 		WHERE time < $1 OR (id = $2 AND token = $3)
 		RETURNING time < $1, client`
 	minTime := time.Now().UTC().Add(-ClientConfirmationCodeLiveTime)
@@ -205,7 +213,8 @@ func (t *dbTrans) AcceptClientConfirmation(
 
 func (t *dbTrans) FindLastClientConfirmation(
 	clientID ClientID, validPeriod time.Duration) (*ConfirmationID, error) {
-	query := `SELECT id FROM client_confirm
+	query := `
+		SELECT id FROM client_confirm
 		WHERE client = $1 AND time >= $2
 		ORDER BY time DESC
 		LIMIT 1`
@@ -232,7 +241,8 @@ func (t *dbTrans) GetClient(id ClientID) (Client, error) {
 }
 
 func (t *dbTrans) ConfirmClient(id ClientID) (Client, error) {
-	query := `UPDATE client SET confirmed = true
+	query := `
+		UPDATE client SET confirmed = true
 		WHERE id = $1
 		RETURNING email, name`
 	var email string
@@ -246,7 +256,8 @@ func (t *dbTrans) ConfirmClient(id ClientID) (Client, error) {
 func (t *dbTrans) FindClientByCreds(
 	email, password string) (Client, bool, error) {
 	email = strings.ToLower(email)
-	query := `SELECT
+	query := `
+		SELECT
 			id, (password = crypt($2, password)) AS password_match, confirmed, name
 		FROM client WHERE email = $1`
 	var id ClientID
@@ -288,7 +299,8 @@ func (t *dbTrans) CreateClient(
 	if err != nil {
 		return nil, err
 	}
-	query := `INSERT INTO client(
+	query := `
+		INSERT INTO client(
 			id, name, email, password, time, request, confirmed)
 		VALUES($1, $2, $3, crypt($4, gen_salt('bf')), $5, $6, false)`
 	id := newClientID()
@@ -310,7 +322,8 @@ func (t *dbTrans) CreateAuth(
 	if err != nil {
 		return token, err
 	}
-	query := `INSERT INTO auth_token (token, client, "time", "update", request)
+	query := `
+		INSERT INTO auth_token (token, client, "time", "update", request)
 		VALUES ($1, $2, $3, $4, $5)`
 	time := time.Now().UTC()
 	var result sql.Result
@@ -323,7 +336,8 @@ func (t *dbTrans) CreateAuth(
 
 func (t *dbTrans) RecreateAuth(
 	token AuthTokenID) (*AuthTokenID, *ClientID, error) {
-	query := `UPDATE auth_token SET token = $2, update = $3, token_prev = token
+	query := `
+		UPDATE auth_token SET token = $2, update = $3, token_prev = token
 		WHERE token = $1
 		RETURNING client`
 	newToken := newAuthTokenID()
@@ -340,7 +354,8 @@ func (t *dbTrans) RecreateAuth(
 
 func (t *dbTrans) RevokeClientAuth(
 	token AuthTokenID, client ClientID) (bool, error) {
-	query := `DELETE FROM auth_token
+	query := `
+		DELETE FROM auth_token
 		WHERE client = $2 AND (token = $1 OR token_prev = $1)`
 	result, err := t.tx.Exec(query, token, client)
 	if err != nil {
@@ -356,7 +371,8 @@ func (t *dbTrans) RevokeClientAuth(
 
 func (t *dbTrans) CreateAccount(
 	currency Currency, client ClientID) (Account, error) {
-	query := `INSERT INTO acc(id, client, currency, time, balance, revision)
+	query := `
+		INSERT INTO acc(id, client, currency, time, balance, revision)
 		VALUES($1, $2, $3, $4, $5, $6)`
 	id := newAccountID()
 	balance := .0
@@ -398,13 +414,14 @@ func (t *dbTrans) GetAccounts(client ClientID) ([]Account, error) {
 func (t *dbTrans) FindAccountUpdate(
 	id AccountID, client ClientID, revision int64) (Account, []*Trans, error) {
 
-	query := `SELECT
+	query := `
+		SELECT
 			acc.currency, acc.balance, acc.revision,
 				trans.id, trans.value, trans.time, trans.status, trans.status_reason,
 				trans.method_arg, method.id, method.info, method.type, method.currency
 		FROM acc
-		LEFT JOIN trans ON trans.acc = acc.id
-		LEFT JOIN method ON method.id = trans.method
+			LEFT JOIN trans ON trans.acc = acc.id
+			LEFT JOIN method ON method.id = trans.method
 		WHERE acc.id = $1 AND acc.client = $2 AND acc.revision > $3
 		ORDER BY trans.time DESC
 		LIMIT 5`
@@ -440,16 +457,22 @@ func (t *dbTrans) FindAccountUpdate(
 		var method Method
 		if methodID.Valid && transID.Valid {
 			method, err = newMethodByType(methodType.MethodType, methodID.MethodID,
-				&client, NewCurrency(methodCurrency.String),
+				client, NewCurrency(methodCurrency.String),
 				func(result interface{}) error {
-					return json.Unmarshal([]byte(methodInfo.String), result)
+					if !methodArg.Valid {
+						return errors.New("method arg is not set")
+					}
+					return json.Unmarshal([]byte(methodArg.String), result)
 				},
 				func(result interface{}) error {
-					return json.Unmarshal([]byte(methodArg.String), result)
+					if !methodInfo.Valid {
+						return errors.New("method info is not set")
+					}
+					return json.Unmarshal([]byte(methodInfo.String), result)
 				})
 			if err != nil {
-				return nil, nil, fmt.Errorf(`failed to create method "%v" instance: "%v"`,
-					methodID, err)
+				return nil, nil, fmt.Errorf(
+					`failed to create method "%v" instance: "%v"`, methodID, err)
 			}
 		}
 
@@ -474,7 +497,8 @@ func (t *dbTrans) FindAccountUpdate(
 
 func (t *dbTrans) FindAccountByEmail(
 	email string, currency Currency) (*AccountID, error) {
-	query := `SELECT acc.id
+	query := `
+		SELECT acc.id
 		FROM client
 			LEFT JOIN acc ON acc.client = client.id
 		WHERE client.email = $1 AND acc.currency = $2
@@ -491,42 +515,55 @@ func (t *dbTrans) FindAccountByEmail(
 }
 
 func (t *dbTrans) UpdateClientAccountBalance(
-	id AccountID, clientID ClientID, delta float64) (Account, error) {
-	query := `UPDATE acc
+	id AccountID, clientID ClientID, delta float64) (Client, Account, error) {
+	query := `
+		UPDATE acc
 		SET balance = balance + $3, revision = revision + 1
-		WHERE client = $2 AND id = $1
-		RETURNING currency, balance, revision`
+		FROM client
+		WHERE acc.client = $2 AND acc.id = $1 AND client.id = acc.client
+		RETURNING
+			acc.currency, acc.balance, acc.revision, client.email, client.name`
 	var currency string
 	var balance float64
 	var revision int64
+	var email string
+	var clientName string
 	switch err := t.tx.QueryRow(query, id, clientID, delta).
-		Scan(&currency, &balance, &revision); {
+		Scan(&currency, &balance, &revision, &email, &clientName); {
 	case err == sql.ErrNoRows:
-		return nil, nil
+		return nil, nil, nil
 	case err != nil:
-		return nil, err
+		return nil, nil, err
 	}
-	return newAccount(id, clientID, NewCurrency(currency), balance, revision), nil
+	return newClient(clientID, email, clientName),
+		newAccount(id, clientID, NewCurrency(currency), balance, revision), nil
 }
 
 func (t *dbTrans) UpdateAccountBalance(
-	id AccountID, delta float64) (Account, error) {
-	query := `UPDATE acc
+	id AccountID, delta float64) (Client, Account, error) {
+	query := `
+		UPDATE acc
 		SET balance = balance + $2, revision = revision + 1
-		WHERE id = $1
-		RETURNING currency, balance, revision, client`
+		FROM client
+		WHERE acc.id = $1 AND client.id = acc.client
+		RETURNING
+			acc.currency, acc.balance, acc.revision,
+			client.id, client.email, client.name`
 	var currency string
 	var balance float64
 	var revision int64
 	var clientID ClientID
+	var email string
+	var clientName string
 	switch err := t.tx.QueryRow(query, id, delta).
-		Scan(&currency, &balance, &revision, &clientID); {
+		Scan(&currency, &balance, &revision, &clientID, &email, &clientName); {
 	case err == sql.ErrNoRows:
-		return nil, nil
+		return nil, nil, nil
 	case err != nil:
-		return nil, err
+		return nil, nil, err
 	}
-	return newAccount(id, clientID, NewCurrency(currency), balance, revision), nil
+	return newClient(clientID, email, clientName),
+		newAccount(id, clientID, NewCurrency(currency), balance, revision), nil
 }
 
 func (t *dbTrans) insertMethod(
@@ -538,10 +575,12 @@ func (t *dbTrans) insertMethod(
 	if err != nil {
 		return err
 	}
-	query := `INSERT INTO method(id, client, type, info, currency, time, key)
-		VALUES($1, $2, $3, $4, $5, $6, $7)
+	query := `
+		INSERT INTO
+			method(id, client, type, info, currency, time, usage, key)
+		VALUES($1, $2, $3, $4, $5, $6, $6, $7)
 		ON CONFLICT ON CONSTRAINT "method-unique-unq"
-			DO UPDATE SET type=EXCLUDED.type
+			DO UPDATE SET usage = $6
 		RETURNING id`
 	var newID MethodID
 	err = t.tx.QueryRow(
@@ -561,16 +600,19 @@ func (t *dbTrans) GetBankCardMethod(
 	acc Account, card *BankCard) (BankCardMethod, error) {
 	var result BankCardMethod
 	return result, t.insertMethod(func(id MethodID, client ClientID) Method {
-		result = newBankCardMethod(id, &client, acc.GetCurrency(), card)
+		result = newBankCardMethod(id, client, acc.GetCurrency(), card)
 		return result
 	}, acc)
 }
 
 func (t *dbTrans) GetAccountMethod(
-	acc Account, receiver AccountID) (AccountMethod, error) {
+	acc Account,
+	receiverAccID AccountID,
+	receiverEmail string) (AccountMethod, error) {
 	var result AccountMethod
 	return result, t.insertMethod(func(id MethodID, client ClientID) Method {
-		result = newAccountMethod(id, &client, acc.GetCurrency(), receiver)
+		result = newAccountMethod(id, client, acc.GetCurrency(),
+			receiverAccID, newAccountMethodArg(receiverEmail))
 		return result
 	}, acc)
 }
@@ -578,7 +620,7 @@ func (t *dbTrans) GetAccountMethod(
 func (t *dbTrans) GetTaxMethod(acc Account, bill string) (TaxMethod, error) {
 	var result TaxMethod
 	return result, t.insertMethod(func(id MethodID, client ClientID) Method {
-		result = newTaxMethod(id, &client, acc.GetCurrency(), newTaxMethodArg(bill))
+		result = newTaxMethod(id, client, acc.GetCurrency(), newTaxMethodArg(bill))
 		return result
 	}, acc)
 }
@@ -601,7 +643,8 @@ func (t *dbTrans) storeTrans(
 		methodArg.Valid = true
 	}
 
-	query := `INSERT INTO trans(
+	query := `
+		INSERT INTO trans(
 			id, method, acc, value, time, status, status_reason, method_arg)
 		VALUES($1, $2, $3, $4, $5, $6, $7, $8)`
 	time := time.Now().UTC()
