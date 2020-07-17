@@ -28,24 +28,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CredentialsConfirmationRequest'
-        "400":
-          description: The request has invalid parameters.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         "409":
           description: Provided credentials already used for another client.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
     patch:
       tags:
       - Client
@@ -72,26 +60,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        "403":
-          description: Request forbidden with provided credentials.
-          headers:
-            Auth-Token:
-              description: Auth-token which has to be used for the next request which
-                controls access by a token.
-              style: simple
-              explode: false
-              schema:
-                $ref: '#/components/schemas/AuthToken'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
       security:
       - bearer: []
   /client/credentials:
@@ -114,24 +82,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClientInfo'
-        "400":
-          description: The request has invalid parameters.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         "404":
           description: Provided credentials are not used for any client.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
   /client/credentials/confirmation:
     put:
       tags:
@@ -152,12 +108,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        "400":
-          description: The request has invalid parameters.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         "404":
           description: Provided credentials are not used for any client.
           content:
@@ -176,12 +126,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
     post:
       tags:
       - Client
@@ -209,24 +153,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        "400":
-          description: The request has invalid parameters.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         "404":
           description: Failed to find credentials to confirm.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
   /client/login:
     post:
       tags:
@@ -269,12 +201,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CredentialsConfirmationRequest'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
     delete:
       tags:
       - Session
@@ -287,26 +213,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        "403":
-          description: Request forbidden with provided credentials.
-          headers:
-            Auth-Token:
-              description: Auth-token which has to be used for the next request which
-                controls access by a token.
-              style: simple
-              explode: false
-              schema:
-                $ref: '#/components/schemas/AuthToken'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
       security:
       - bearer: []
   /account:
@@ -330,8 +236,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccountInfoDict'
-        "403":
-          description: Request forbidden with provided credentials.
+      security:
+      - bearer: []
+  /account/all:
+    get:
+      tags:
+      - Account
+      summary: Finds an account by provided query.
+      operationId: AccountFind
+      parameters:
+      - name: email
+        in: query
+        description: Client email.
+        required: true
+        style: form
+        explode: true
+        schema:
+          type: string
+          format: email
+      - name: currency
+        in: query
+        description: Account currency.
+        required: true
+        style: form
+        explode: true
+        schema:
+          type: string
+          format: currency
+      responses:
+        "200":
+          description: Account has been found.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/inline_response_200'
+        "404":
+          description: Failed to find an account.
           headers:
             Auth-Token:
               description: Auth-token which has to be used for the next request which
@@ -344,12 +292,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
       security:
       - bearer: []
   /account/{accountId}:
@@ -391,44 +333,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccountDetails'
-        "204":
-          description: The account does not have updates or the account with such
-            ID is not existent.
-          headers:
-            Auth-Token:
-              description: Auth-token which has to be used for the next request which
-                controls access by a token.
-              style: simple
-              explode: false
-              schema:
-                $ref: '#/components/schemas/AuthToken'
-        "403":
-          description: Request forbidden with provided credentials.
-          headers:
-            Auth-Token:
-              description: Auth-token which has to be used for the next request which
-                controls access by a token.
-              style: simple
-              explode: false
-              schema:
-                $ref: '#/components/schemas/AuthToken'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
       security:
       - bearer: []
     post:
       tags:
       - Account
       summary: Updates account balance by funds depositing.
-      operationId: AccountBalance
+      operationId: AccountDeposit
       parameters:
       - name: accountId
         in: path
@@ -474,40 +385,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        "403":
-          description: Request forbidden with provided credentials.
-          headers:
-            Auth-Token:
-              description: Auth-token which has to be used for the next request which
-                controls access by a token.
-              style: simple
-              explode: false
-              schema:
-                $ref: '#/components/schemas/AuthToken'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Empty'
-        "404":
-          description: Account ID is invalid.
-          headers:
-            Auth-Token:
-              description: Auth-token which has to be used for the next request which
-                controls access by a token.
-              style: simple
-              explode: false
-              schema:
-                $ref: '#/components/schemas/AuthToken'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
       security:
       - bearer: []
   /account/{accountId}/history:
@@ -564,34 +441,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccountActionListReversed'
-        "403":
-          description: Request forbidden with provided credentials.
-          headers:
-            Auth-Token:
-              description: Auth-token which has to be used for the next request which
-                controls access by a token.
-              style: simple
-              explode: false
-              schema:
-                $ref: '#/components/schemas/AuthToken'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
       security:
       - bearer: []
-  /account/{accountId}/payment:
+  /account/{accountId}/payment/account:
     post:
       tags:
       - Payment
-      summary: Processes a payment.
-      operationId: AccountPayment
+      summary: Processes a payment to another account.
+      operationId: AccountPaymentToAccount
       parameters:
       - name: accountId
         in: path
@@ -605,9 +462,23 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PaymentOrder'
+              $ref: '#/components/schemas/AccountPaymentAccountOrder'
         required: true
       responses:
+        "200":
+          description: Action successfully executed.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
         "202":
           description: Payment accepted for execution, but not executed yet, and there
             is no guarantee that it will be executed successfully.
@@ -623,8 +494,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        "403":
-          description: Request forbidden with provided credentials.
+        "402":
+          description: Insufficient funds.
           headers:
             Auth-Token:
               description: Auth-token which has to be used for the next request which
@@ -637,23 +508,107 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Empty'
-        default:
-          description: Unexpected error.
+        "404":
+          description: The receiver account ID is not existent.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: '#/components/schemas/Empty'
+      security:
+      - bearer: []
+  /account/{accountId}/payment/tax:
+    post:
+      tags:
+      - Payment
+      summary: Processes a tax payment.
+      operationId: AccountPaymentTax
+      parameters:
+      - name: accountId
+        in: path
+        description: Account ID.
+        required: true
+        style: simple
+        explode: false
+        schema:
+          $ref: '#/components/schemas/AccountId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountPaymentTaxOrder'
+        required: true
+      responses:
+        "200":
+          description: Action successfully executed.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "202":
+          description: Payment accepted for execution, but not executed yet, and there
+            is no guarantee that it will be executed successfully.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "402":
+          description: Insufficient funds.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
+        "404":
+          description: The receiver account ID is not existent.
+          headers:
+            Auth-Token:
+              description: Auth-token which has to be used for the next request which
+                controls access by a token.
+              style: simple
+              explode: false
+              schema:
+                $ref: '#/components/schemas/AuthToken'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Empty'
       security:
       - bearer: []
 components:
   schemas:
     Empty:
       type: object
-    Error:
-      properties:
-        message:
-          type: string
-          description: Error short description.
     Revision:
       type: integer
     Timestamp:
@@ -829,8 +784,8 @@ components:
         cvc:
           maxLength: 3
           minLength: 3
-          type: integer
-          example: 829
+          type: string
+          example: "829"
     Cash:
       type: string
     BankCardSource:
@@ -857,8 +812,32 @@ components:
           oneOf:
           - $ref: '#/components/schemas/BankCardSource'
           - $ref: '#/components/schemas/CashSource'
-    PaymentOrder:
+    AccountPaymentAccountOrder:
+      required:
+      - account
+      - value
+      properties:
+        value:
+          type: number
+          format: double
+        account:
+          type: object
+          format: uuid
+    AccountPaymentTaxOrder:
+      required:
+      - bill
+      - value
+      properties:
+        value:
+          type: number
+          format: double
+        bill:
+          type: string
+    inline_response_200:
       type: object
+      properties:
+        account:
+          $ref: '#/components/schemas/AccountId'
   securitySchemes:
     bearer:
       type: http
