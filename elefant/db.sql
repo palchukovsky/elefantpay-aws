@@ -23,6 +23,13 @@ SET row_security = off;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
+--
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
+
+
 SET default_tablespace = '';
 
 --
@@ -107,12 +114,13 @@ CREATE TABLE public.client_confirm (
 
 CREATE TABLE public.method (
     id uuid NOT NULL,
-    client uuid,
+    client uuid NOT NULL,
     info json NOT NULL,
     currency character(3) NOT NULL,
     "time" timestamp without time zone NOT NULL,
     key text NOT NULL,
-    type smallint NOT NULL
+    type smallint NOT NULL,
+    usage timestamp without time zone NOT NULL
 );
 
 
@@ -125,7 +133,10 @@ CREATE TABLE public.trans (
     method uuid NOT NULL,
     acc uuid NOT NULL,
     value double precision NOT NULL,
-    "time" timestamp without time zone NOT NULL
+    "time" timestamp without time zone NOT NULL,
+    status smallint NOT NULL,
+    status_reason text,
+    method_arg json
 );
 
 
@@ -281,6 +292,13 @@ CREATE INDEX "client-email-confirmed_idx" ON public.client USING btree (confirme
 --
 
 CREATE INDEX "confirmation-time_idx" ON public.client_confirm USING btree ("time");
+
+
+--
+-- Name: method-usage_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX "method-usage_idx" ON public.method USING btree (usage);
 
 
 --
